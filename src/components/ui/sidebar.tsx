@@ -32,7 +32,7 @@ type SidebarContext = {
   setOpen: (open: boolean) => void
   openMobile: boolean
   setOpenMobile: (open: boolean) => void
-  isMobile: boolean
+  isMobile: boolean | undefined; // Allow undefined during initial render
   toggleSidebar: () => void
 }
 
@@ -68,7 +68,8 @@ const SidebarProvider = React.forwardRef<
     ref
   ) => {
     const isMobile = useIsMobile()
-    const [openMobile, setOpenMobile] = React.useState(false)
+    const [openMobile, setOpenMobile] = React.useState(false);
+    const [isClient, setIsClient] = React.useState(false); // Track client-side mount
 
     // This is the internal state of the sidebar.
     // We use openProp and setOpenProp for control from outside the component.
@@ -91,10 +92,13 @@ const SidebarProvider = React.forwardRef<
 
     // Helper to toggle the sidebar.
     const toggleSidebar = React.useCallback(() => {
-      return isMobile
-        ? setOpenMobile((open) => !open)
-        : setOpen((open) => !open)
+      if (isMobile) {
+          setOpenMobile((currentOpen) => !currentOpen);
+      } else {
+          setOpen((currentOpen) => !currentOpen);
+      }
     }, [isMobile, setOpen, setOpenMobile])
+
 
     // Adds a keyboard shortcut to toggle the sidebar.
     React.useEffect(() => {
@@ -112,27 +116,35 @@ const SidebarProvider = React.forwardRef<
       return () => window.removeEventListener("keydown", handleKeyDown)
     }, [toggleSidebar])
 
+    // Set isClient to true after mount
+    React.useEffect(() => {
+      setIsClient(true);
+    }, []);
+
+
     // We add a state so that we can do data-state="expanded" or "collapsed".
     // This makes it easier to style the sidebar with Tailwind classes.
     const state = open ? "expanded" : "collapsed"
+
+    // Pass undefined for isMobile if not client-side yet
+    const clientAwareIsMobile = isClient ? isMobile : undefined;
 
     const contextValue = React.useMemo<SidebarContext>(
       () => ({
         state,
         open,
         setOpen,
-        isMobile,
+        isMobile: clientAwareIsMobile,
         openMobile,
         setOpenMobile,
         toggleSidebar,
       }),
-      [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar]
+      [state, open, setOpen, clientAwareIsMobile, openMobile, setOpenMobile, toggleSidebar]
     )
 
-    return (
-      <SidebarContext.Provider value={contextValue}>
-        <TooltipProvider delayDuration={0}>
-          <div
+    // Don't render TooltipProvider server-side to avoid hydration issues with Tooltip internals if they use client-side APIs implicitly
+    const content = (
+       <div
             style={
               {
                 "--sidebar-width": SIDEBAR_WIDTH,
@@ -148,8 +160,12 @@ const SidebarProvider = React.forwardRef<
             {...props}
           >
             {children}
-          </div>
-        </TooltipProvider>
+        </div>
+    );
+
+    return (
+      <SidebarContext.Provider value={contextValue}>
+        {isClient ? <TooltipProvider delayDuration={0}>{content}</TooltipProvider> : content}
       </SidebarContext.Provider>
     )
   }
@@ -175,7 +191,19 @@ const Sidebar = React.forwardRef<
     },
     ref
   ) => {
-    const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+    const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
+    const [isMounted, setIsMounted] = React.useState(false);
+
+    React.useEffect(() => {
+      setIsMounted(true);
+    }, []);
+
+    // Render nothing or a placeholder until mounted on the client
+    if (!isMounted || isMobile === undefined) {
+        // Optionally return a placeholder/skeleton here instead of null
+        return null;
+    }
+
 
     if (collapsible === "none") {
       return (
@@ -212,6 +240,7 @@ const Sidebar = React.forwardRef<
       )
     }
 
+    // Desktop rendering
     return (
       <div
         ref={ref}
@@ -263,7 +292,12 @@ const SidebarTrigger = React.forwardRef<
   React.ElementRef<typeof Button>,
   React.ComponentProps<typeof Button>
 >(({ className, onClick, ...props }, ref) => {
-  const { toggleSidebar } = useSidebar()
+  const { toggleSidebar, isMobile } = useSidebar()
+
+   // Render nothing or a disabled button until isMobile is determined
+   if (isMobile === undefined) {
+     return <Button ref={ref} variant="ghost" size="icon" className={cn("h-7 w-7", className)} disabled {...props}><PanelLeft /></Button>;
+   }
 
   return (
     <Button
@@ -567,9 +601,11 @@ const SidebarMenuButton = React.forwardRef<
       />
     )
 
-    if (!tooltip) {
+    // Render tooltip only on client and if needed
+    if (!tooltip || (isMobile === undefined)) {
       return button
     }
+
 
     if (typeof tooltip === "string") {
       tooltip = {
