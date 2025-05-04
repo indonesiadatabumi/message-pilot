@@ -11,12 +11,15 @@ import type { MessageTemplate } from '@/services/message-service';
 const TemplateSchema = z.object({
     name: z.string().min(1, { message: "Template name is required." }).max(100, {message: "Name too long."}),
     content: z.string().min(1, { message: "Template content cannot be empty." }).max(1000, {message: "Content too long."})
-      .refine(val => !val.includes('{}') && !val.includes('{ }'), { message: "Empty braces {} are not allowed. Use {{parameter_name}}."})
+      // 1. Disallow empty braces like {} or { }
+      .refine(val => !val.includes('{}') && !val.includes('{ }'), { message: "Empty braces {} are not allowed. Use {{parameterName}}."})
+      // 2. Ensure only double curly braces {{...}} are used for parameters
       .refine(val => {
-          const matches = val.match(/\{\{[^\{\}]*?\}\}/g) || [];
-          const invalidMatches = val.match(/\{[^{}]*?\}/g)?.filter(m => !matches.includes(m)) || [];
-          return invalidMatches.length === 0;
-      }, { message: "Use double curly braces for parameters, e.g., {{name}}."}),
+          // Remove all valid {{parameterName}} blocks
+          const sanitized = val.replace(/\{\{[^\{\}]*?\}\}/g, '');
+          // Check if any standalone '{' or '}' remain
+          return !/[{}]/.test(sanitized);
+      }, { message: "Use double curly braces for parameters, e.g., {{name}}. Single braces are not allowed."}),
 });
 
 // --- Get All Templates ---
