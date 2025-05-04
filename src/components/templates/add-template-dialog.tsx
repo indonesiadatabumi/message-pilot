@@ -54,7 +54,7 @@ export function AddTemplateDialog({ triggerButton }: AddTemplateDialogProps) {
         <DialogHeader>
           <DialogTitle>Add New Template</DialogTitle>
           <DialogDescription>
-            Create a reusable message template. Use `{{parameter_name}}` for variables.
+            Create a reusable message template. Use <code className="bg-muted px-1 rounded text-sm font-mono">{`{{parameter_name}}`}</code> for variables.
           </DialogDescription>
         </DialogHeader>
         <TemplateForm onSubmit={handleAddTemplate} isLoading={isLoading} submitButtonText="Add Template"/>
