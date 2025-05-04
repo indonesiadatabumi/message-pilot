@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { ObjectId } from 'mongodb';
 import type { Contact, MessageTemplate, TemplateParams } from '@/services/message-service';
 import { scheduleNewMessage } from './scheduled-message-actions'; // Import schedule action
+import { sendSms } from '@/services/sms-service'; // Import the SMS sending service
 
 // --- Schemas for Message Sending Forms ---
 
@@ -38,7 +39,7 @@ type PrivateMessageFormValues = z.infer<typeof PrivateMessageSchema>;
 
 // Broadcast Message Schema (matches form)
 const BroadcastMessageSchema = z.object({
-  recipients: z.array(z.custom<Contact>()).min(1, { message: "Please select at least one recipient."}),
+  recipients: z.array(z.custom<Contact>((val): val is Contact => val instanceof Object && '_id' in val && 'phone' in val)).min(1, { message: "Please select at least one recipient."}),
   content: z.string().min(1, { message: "Message content cannot be empty." }).max(1000, {message: "Message too long."}),
   scheduleEnabled: z.boolean().default(false),
   scheduledDate: z.date().optional(),
@@ -71,7 +72,7 @@ const createTemplateMessageSchema = (params: string[]) => {
     }, {} as Record<string, z.ZodString>);
 
   return z.object({
-     recipient: z.custom<Contact>((val) => val instanceof Object && '_id' in val, {
+     recipient: z.custom<Contact>((val) => val instanceof Object && '_id' in val && 'phone' in val, {
          message: "Please select a recipient.",
       }),
       template: z.custom<MessageTemplate>((val) => val instanceof Object && '_id' in val, {
@@ -141,11 +142,15 @@ export async function handleSendPrivateMessage(formData: unknown): Promise<SendP
             return { success: true, message: `Message to ${recipient.name} scheduled successfully.` };
 
         } else {
-            // --- Replace with actual SMS sending API call ---
-            console.log(`ACTION: Sending private message NOW to ${recipient.name} (${recipient.phone}): "${content}"`);
-            // await sendSmsApi(recipient.phone, content);
+            // --- Send SMS immediately using the service ---
+            console.log(`ACTION: Sending private message NOW via API to ${recipient.name} (${recipient.phone}).`);
+            const smsResult = await sendSms(recipient.phone, content);
+            if (!smsResult.success) {
+                 // Propagate API error back to the form/user
+                 return { success: false, error: smsResult.message };
+            }
             // --- ---
-            return { success: true, message: `Message sent successfully to ${recipient.name}.` };
+            return { success: true, message: smsResult.message }; // Use message from API result
         }
     } catch (error: any) {
         console.error("Error in handleSendPrivateMessage:", error);
@@ -173,7 +178,7 @@ export async function handleSendBroadcastMessage(formData: unknown): Promise<Sen
     try {
         if (scheduleEnabled && scheduledDate && scheduledTime) {
             const scheduledDateTime = combineDateTime(scheduledDate, scheduledTime);
-            // Schedule one message per recipient
+            // Schedule one message per recipient in the database
             const schedulePromises = recipientPhones.map(phone =>
                  scheduleNewMessage({
                      recipient: phone,
@@ -184,17 +189,28 @@ export async function handleSendBroadcastMessage(formData: unknown): Promise<Sen
             const results = await Promise.all(schedulePromises);
             const failures = results.filter(r => !r.success);
             if (failures.length > 0) {
-                throw new Error(`Failed to schedule for ${failures.length} recipients.`);
+                // Report only the count of scheduling failures, not API failures yet
+                throw new Error(`Failed to schedule message for ${failures.length} recipients.`);
             }
             return { success: true, message: `Broadcast message scheduled successfully for ${recipients.length} contacts.` };
 
         } else {
-            // --- Replace with actual SMS sending API call (bulk or loop) ---
-            console.log(`ACTION: Sending broadcast message NOW to ${recipients.length} contacts: "${content}"`);
-            console.log(`Recipients: ${recipientPhones.join(', ')}`);
-            // await sendBulkSmsApi(recipientPhones, content); OR loop through sendSmsApi
+             // --- Send SMS immediately using the service (looping) ---
+             console.log(`ACTION: Sending broadcast message NOW via API to ${recipients.length} contacts.`);
+             const sendPromises = recipientPhones.map(phone => sendSms(phone, content));
+             const results = await Promise.all(sendPromises);
+             const apiFailures = results.filter(r => !r.success);
+
+             if (apiFailures.length > 0) {
+                 console.error(`Failed to send broadcast to ${apiFailures.length} recipients. Errors:`, apiFailures.map(f => f.message));
+                 // Return a partial success/error message
+                 return {
+                    success: false, // Consider it a failure if any send fails
+                    error: `Broadcast sent to ${recipients.length - apiFailures.length} contacts, but failed for ${apiFailures.length}. Check logs for details.`
+                 };
+             }
             // --- ---
-            return { success: true, message: `Broadcast message sent successfully to ${recipients.length} contacts.` };
+            return { success: true, message: `Broadcast message sent successfully to all ${recipients.length} contacts.` };
         }
     } catch (error: any) {
         console.error("Error in handleSendBroadcastMessage:", error);
@@ -204,11 +220,6 @@ export async function handleSendBroadcastMessage(formData: unknown): Promise<Sen
 
 // --- Send/Schedule Template Message Action ---
 type SendTemplateMessageResult = { success: true; message: string } | { success: false; error: string; fieldErrors?: Record<string, any> }; // fieldErrors might be nested
-
-// Note: This action needs the template parameters to validate against the *correct* schema.
-// The form component MUST pass the extracted params along with the form data,
-// or this action needs to fetch the template based on the ID *before* validation.
-// Let's assume the form passes the params for simplicity here.
 
 export async function handleSendTemplateMessage(
     formData: unknown, // Raw form data
@@ -240,6 +251,7 @@ export async function handleSendTemplateMessage(
          if (/\{\{.*?\}\}/.test(filledContent)) {
             console.warn("Template might still contain unfilled parameters:", filledContent);
             // Decide if this should be an error
+            // return { success: false, error: "Failed to fill all template parameters." };
          }
     } catch (renderError: any) {
          console.error("Error rendering template:", renderError);
@@ -252,19 +264,22 @@ export async function handleSendTemplateMessage(
             const scheduledDateTime = combineDateTime(scheduledDate, scheduledTime);
              const result = await scheduleNewMessage({
                 recipient: recipient.phone,
-                content: filledContent, // Send the rendered content
+                content: filledContent, // Schedule the rendered content
                 scheduledTime: scheduledDateTime,
             });
             if (!result.success) throw new Error(result.error);
             return { success: true, message: `Template message to ${recipient.name} scheduled successfully.` };
 
         } else {
-            // --- Replace with actual SMS sending API call ---
-            console.log(`ACTION: Sending template message NOW to ${recipient.name} (${recipient.phone}) using template "${template.name}"`);
-            console.log(`Rendered Content: "${filledContent}"`);
-            // await sendSmsApi(recipient.phone, filledContent);
+             // --- Send SMS immediately using the service ---
+            console.log(`ACTION: Sending template message NOW via API to ${recipient.name} (${recipient.phone}) using template "${template.name}"`);
+            const smsResult = await sendSms(recipient.phone, filledContent);
+             if (!smsResult.success) {
+                 // Propagate API error back to the form/user
+                 return { success: false, error: smsResult.message };
+            }
             // --- ---
-            return { success: true, message: `Template message sent successfully to ${recipient.name}.` };
+            return { success: true, message: smsResult.message }; // Use message from API result
         }
     } catch (error: any) {
         console.error("Error in handleSendTemplateMessage:", error);

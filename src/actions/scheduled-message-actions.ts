@@ -3,9 +3,10 @@
 
 import { revalidatePath } from 'next/cache';
 import { getDb } from '@/lib/mongodb';
-import { ObjectId } from 'mongodb';
+import { Db, ObjectId } from 'mongodb'; // Import Db type
 import { z } from 'zod';
 import type { ScheduledMessage } from '@/services/message-service';
+import { sendSms } from '@/services/sms-service'; // Import the SMS sending service
 
 // Schema for scheduling a message (can be simplified if needed, or match form exactly)
 const ScheduleMessageSchema = z.object({
@@ -51,7 +52,7 @@ export async function scheduleNewMessage(formData: unknown): Promise<ScheduleMes
 
     const { recipient, content, scheduledTime } = validatedFields.data;
 
-    const newMessage: Omit<ScheduledMessage, '_id'> = {
+    const newMessage: Omit<ScheduledMessage, '_id' | 'createdAt' | 'status'> & { status: 'pending'; createdAt: Date } = {
         recipient,
         content,
         scheduledTime,
@@ -132,14 +133,26 @@ export async function updateScheduledMessage(id: string, formData: unknown): Pro
 
     try {
         const db = await getDb();
+        // Find the message first to ensure it's still pending
+        const existingMessage = await db.collection<ScheduledMessage>('scheduled_messages').findOne({ _id: objectId });
+
+        if (!existingMessage) {
+             return { success: false, error: "Scheduled message not found." };
+        }
+        if (existingMessage.status !== 'pending') {
+            return { success: false, error: `Cannot update message with status "${existingMessage.status}".` };
+        }
+
+
         const result = await db.collection<ScheduledMessage>('scheduled_messages').findOneAndUpdate(
-        { _id: objectId, status: 'pending' }, // Can only update pending messages
+        { _id: objectId, status: 'pending' }, // Ensure status is still pending during update
         { $set: { recipient, content, scheduledTime } },
         { returnDocument: 'after' }
         );
 
         if (!result) {
-            return { success: false, error: "Scheduled message not found, already sent, or canceled." };
+            // This might happen in a race condition if status changed between findOne and findOneAndUpdate
+            return { success: false, error: "Failed to update message. It might have been sent or canceled just now." };
         }
 
         revalidatePath('/dashboard/scheduled');
@@ -157,43 +170,92 @@ export async function updateScheduledMessage(id: string, formData: unknown): Pro
 }
 
 
-// --- Placeholder for Sending Logic ---
-// In a real app, you'd have a separate process (e.g., a cron job, serverless function)
-// that queries for pending messages whose scheduledTime has passed,
-// sends them (using Twilio, etc.), and updates their status to 'sent' or 'failed'.
+// --- Process Pending Messages (Background Task Logic) ---
+// This function should be triggered periodically (e.g., cron job, scheduled task).
+// It finds messages ready to be sent, attempts to send them via the SMS API,
+// and updates their status in the database.
 
-// Example function ( conceptual - would run in a background task)
-export async function processPendingMessages(): Promise<void> {
+export async function processPendingMessages(): Promise<{ processed: number; sent: number; failed: number }> {
     const now = new Date();
-    const db = await getDb();
-    const messagesToSend = await db.collection<ScheduledMessage>('scheduled_messages')
-        .find({ status: 'pending', scheduledTime: { $lte: now } })
-        .toArray();
+    let db: Db | null = null;
+    let processed = 0;
+    let sent = 0;
+    let failed = 0;
 
-    for (const message of messagesToSend) {
-        try {
-            // --- Integrate with your SMS sending service here ---
-            // await sendSmsApi(message.recipient, message.content);
-            console.log(`Simulating sending message ID ${message._id} to ${message.recipient}`);
-            // --- ---
+    try {
+        db = await getDb();
+        const messagesToSend = await db.collection<ScheduledMessage>('scheduled_messages')
+            .find({ status: 'pending', scheduledTime: { $lte: now } })
+            .toArray();
 
-            // Update status to 'sent' on success
-             await db.collection('scheduled_messages').updateOne(
-                { _id: message._id },
-                { $set: { status: 'sent' } }
-            );
-        } catch (sendError) {
-            console.error(`Failed to send message ID ${message._id}:`, sendError);
-            // Update status to 'failed' on error
-             await db.collection('scheduled_messages').updateOne(
-                { _id: message._id },
-                { $set: { status: 'failed' } }
-            );
+        processed = messagesToSend.length;
+        if (processed === 0) {
+             console.log("No scheduled messages ready to be processed.");
+             return { processed, sent, failed };
         }
-    }
 
-    if (messagesToSend.length > 0) {
-        console.log(`Processed ${messagesToSend.length} scheduled messages.`);
-        revalidatePath('/dashboard/scheduled'); // Revalidate if needed after processing
+        console.log(`Processing ${processed} scheduled messages...`);
+
+        for (const message of messagesToSend) {
+            // Double-check status in case it changed since the initial query
+            const currentStatus = await db.collection('scheduled_messages').findOne({ _id: message._id }, { projection: { status: 1 } });
+            if (currentStatus?.status !== 'pending') {
+                console.log(`Skipping message ID ${message._id} - status changed to ${currentStatus?.status}.`);
+                processed--; // Adjust count as it wasn't truly processed now
+                continue;
+            }
+
+
+            try {
+                // --- Send SMS using the service ---
+                console.log(`Attempting to send scheduled message ID ${message._id} to ${message.recipient}`);
+                const smsResult = await sendSms(message.recipient, message.content);
+                // --- ---
+
+                let finalStatus: ScheduledMessage['status'];
+                if (smsResult.success) {
+                    finalStatus = 'sent';
+                    sent++;
+                    console.log(`Successfully sent scheduled message ID ${message._id}. API response: ${smsResult.message}`);
+                } else {
+                    finalStatus = 'failed';
+                    failed++;
+                    console.error(`Failed to send scheduled message ID ${message._id}. API Error: ${smsResult.message}`);
+                }
+
+                // Update status in DB
+                await db.collection('scheduled_messages').updateOne(
+                    { _id: message._id, status: 'pending' }, // Ensure it's still pending before updating
+                    { $set: { status: finalStatus } }
+                );
+
+            } catch (sendError: any) {
+                 // Catch errors during the sendSms call or DB update
+                failed++;
+                console.error(`Unhandled error processing message ID ${message._id}:`, sendError);
+                // Attempt to mark as failed even if sendSms itself threw an error
+                try {
+                    await db.collection('scheduled_messages').updateOne(
+                        { _id: message._id, status: 'pending' }, // Ensure it's still pending
+                        { $set: { status: 'failed' } }
+                    );
+                } catch (dbUpdateError) {
+                     console.error(`Failed to update status to 'failed' for message ID ${message._id} after error:`, dbUpdateError);
+                }
+            }
+        } // End loop
+
+        console.log(`Finished processing. Sent: ${sent}, Failed: ${failed}.`);
+
+        if (sent > 0 || failed > 0) {
+            revalidatePath('/dashboard/scheduled'); // Revalidate if statuses changed
+        }
+
+        return { processed: sent + failed, sent, failed }; // Return counts of messages actually attempted
+
+    } catch (error: any) {
+         console.error("Error during processPendingMessages:", error);
+         // Depending on the error, you might want to throw it or handle differently
+         return { processed, sent, failed }; // Return counts up to the point of failure
     }
 }
