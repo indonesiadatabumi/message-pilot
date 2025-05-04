@@ -4,6 +4,7 @@
 /node_modules
 /.pnp
 .pnp.js
+.yarn/install-state.gz
 
 # testing
 /coverage
@@ -23,9 +24,11 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.pnpm-debug.log*
 
 # local env files
 .env*.local
+.env
 
 # vercel
 .vercel
@@ -37,6 +40,6 @@ next-env.d.ts
 # turbo
 .turbo
 
-# genkit
-.genkit/log/*.jsonl
-.genkit/trace/*.json
+# genkit state
+.genkit/log/
+.genkit/trace/
