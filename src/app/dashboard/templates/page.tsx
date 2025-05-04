@@ -25,7 +25,7 @@ export default async function TemplatesPage() {
          }/>
       </div>
        <p className="text-muted-foreground mb-4">
-        Create and manage reusable message templates. Use double curly braces for parameters, e.g., `{{parameter_name}}`.
+        Create and manage reusable message templates. Use double curly braces for parameters, e.g., <code className="bg-muted px-1 rounded text-sm font-mono">{`{{parameter_name}}`}</code>.
       </p>
       <TemplateTable templates={templates} />
     </div>
