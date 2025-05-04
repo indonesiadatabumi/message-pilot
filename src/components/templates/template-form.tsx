@@ -1,3 +1,4 @@
+
 "use client";
 
 import * as React from "react";
@@ -93,7 +94,7 @@ export function TemplateForm({
                 />
               </FormControl>
                <p className="text-xs text-muted-foreground pt-1">
-                 Example: `Hi {{name}}, your appointment is on {{date}}.`
+                 Example: <code className="bg-muted px-1 rounded text-sm font-mono">{`Hi {{name}}, your appointment is on {{date}}.`}</code>
                </p>
               <FormMessage />
             </FormItem>
