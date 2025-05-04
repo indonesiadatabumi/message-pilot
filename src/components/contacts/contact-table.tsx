@@ -11,20 +11,29 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Edit, Trash2 } from "lucide-react";
-import { Contact } from "@/services/message-service"; // Assuming Contact type is defined here
+import type { Contact } from "@/services/message-service"; // Use type import
 import { EditContactDialog } from "./edit-contact-dialog";
 import { DeleteContactAlert } from "./delete-contact-alert";
+import { useRouter } from 'next/navigation'; // For potential refresh
 
 interface ContactTableProps {
   contacts: Contact[];
-  // TODO: Add functions for refresh/update data after edits/deletes
 }
 
-export function ContactTable({ contacts }: ContactTableProps) {
+export function ContactTable({ contacts: initialContacts }: ContactTableProps) {
+    const router = useRouter();
+    // Use state to manage contacts locally for optimistic updates or manual refresh
+    const [contacts, setContacts] = React.useState(initialContacts);
     const [editingContact, setEditingContact] = React.useState<Contact | null>(null);
     const [deletingContact, setDeletingContact] = React.useState<Contact | null>(null);
     const [isEditDialogOpen, setIsEditDialogOpen] = React.useState(false);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = React.useState(false);
+
+     // Update local state if initial props change (e.g., after full page refresh)
+    React.useEffect(() => {
+        setContacts(initialContacts);
+    }, [initialContacts]);
+
 
     const handleEditClick = (contact: Contact) => {
         setEditingContact(contact);
@@ -36,20 +45,35 @@ export function ContactTable({ contacts }: ContactTableProps) {
         setIsDeleteDialogOpen(true);
     };
 
-    const handleEditClose = () => {
+    // Callback when edit is successful
+    const handleEditSuccess = (updatedContact: Contact) => {
+        setContacts(prevContacts =>
+            prevContacts.map(c => (c._id === updatedContact._id ? updatedContact : c))
+        );
         setIsEditDialogOpen(false);
-        setEditingContact(null); // Clear editing contact when closing
-        // TODO: Potentially refresh data here
+        setEditingContact(null);
+        // router.refresh(); // Or use optimistic update as above
     };
 
-    const handleDeleteClose = (deleted: boolean) => {
+    // Callback when delete is confirmed and successful
+    const handleDeleteSuccess = () => {
+        if (!deletingContact?._id) return;
+        setContacts(prevContacts => prevContacts.filter(c => c._id !== deletingContact._id));
         setIsDeleteDialogOpen(false);
-        setDeletingContact(null); // Clear deleting contact when closing
-        if (deleted) {
-           // TODO: Potentially refresh data here or optimistically remove from list
-           console.log("Contact potentially deleted, refresh needed.");
-        }
+        setDeletingContact(null);
+         // router.refresh(); // Or use optimistic update as above
     };
+
+    // Close handlers without success action
+     const handleEditClose = () => {
+        setIsEditDialogOpen(false);
+        setEditingContact(null);
+    };
+     const handleDeleteClose = () => {
+        setIsDeleteDialogOpen(false);
+        setDeletingContact(null);
+    };
+
 
   return (
     <>
@@ -71,32 +95,32 @@ export function ContactTable({ contacts }: ContactTableProps) {
               </TableRow>
             ) : (
               contacts.map((contact) => (
-                <TableRow key={contact.id}>
+                // Use _id as the key, ensuring it's a string
+                <TableRow key={contact._id?.toString()}>
                   <TableCell className="font-medium">{contact.name}</TableCell>
-                  <TableCell>{contact.phoneNumber}</TableCell>
+                  {/* Display phone */}
+                  <TableCell>{contact.phone}</TableCell>
                   <TableCell className="text-right">
+                    {/* Edit Dialog */}
                     <EditContactDialog
                        contact={editingContact} // Pass the contact being edited
-                       open={isEditDialogOpen && editingContact?.id === contact.id}
-                       onOpenChange={(open) => {
-                           if (!open) handleEditClose();
-                           // This ensures the dialog state is controlled correctly
-                           // setIsEditDialogOpen(open) might not be needed if controlled externally
-                       }}
+                       // Ensure open state is tied to the specific contact's ID
+                       open={isEditDialogOpen && editingContact?._id === contact._id}
+                       onOpenChange={(open) => { if (!open) handleEditClose(); }}
                        triggerButton={
                         <Button variant="ghost" size="icon" onClick={() => handleEditClick(contact)} aria-label="Edit Contact">
                             <Edit className="h-4 w-4" />
                          </Button>
                        }
-                       onSaveSuccess={handleEditClose} // Close dialog on success
+                       onSaveSuccess={handleEditSuccess} // Use success callback
                     />
+                    {/* Delete Alert */}
                     <DeleteContactAlert
                         contact={deletingContact} // Pass the contact being deleted
-                        open={isDeleteDialogOpen && deletingContact?.id === contact.id}
-                        onOpenChange={(open) => {
-                            if (!open) handleDeleteClose(false);
-                        }}
-                        onConfirmDelete={() => handleDeleteClose(true)} // Close and indicate deletion
+                        // Ensure open state is tied to the specific contact's ID
+                        open={isDeleteDialogOpen && deletingContact?._id === contact._id}
+                        onOpenChange={(open) => { if (!open) handleDeleteClose(); }}
+                        onConfirmDelete={handleDeleteSuccess} // Use success callback
                         triggerButton={
                            <Button variant="ghost" size="icon" onClick={() => handleDeleteClick(contact)} className="text-destructive hover:text-destructive/90" aria-label="Delete Contact">
                                <Trash2 className="h-4 w-4" />
@@ -110,17 +134,8 @@ export function ContactTable({ contacts }: ContactTableProps) {
           </TableBody>
         </Table>
       </div>
-
-      {/* Render dialogs outside the table loop to avoid multiple instances if needed,
-          or ensure they are correctly controlled by their state.
-          Keeping them inline as above works if state management is correct. */}
     </>
   );
 }
 
-// Add id to Contact interface if it doesn't exist
-declare module "@/services/message-service" {
-  interface Contact {
-    id?: string; // Make ID optional or required based on your API
-  }
-}
+// No longer need declare module augmentation as _id is part of the base interface

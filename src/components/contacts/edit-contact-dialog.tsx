@@ -8,55 +8,51 @@ import {
   DialogTitle,
   DialogDescription,
   DialogTrigger,
+  // DialogClose // Import if needed
 } from "@/components/ui/dialog";
 import { ContactForm } from "./contact-form";
-import { toast } from "@/hooks/use-toast"; // Correct import path
-import { Contact } from "@/services/message-service";
+import type { Contact } from "@/services/message-service";
 
 interface EditContactDialogProps {
-  contact: Contact | null;
-  triggerButton?: React.ReactNode; // Make trigger optional if controlled externally
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSaveSuccess?: () => void; // Callback for successful save
+  contact: Contact | null; // The contact to edit
+  triggerButton?: React.ReactNode; // Optional trigger if not controlled externally
+  open: boolean; // Dialog must be controlled by parent state
+  onOpenChange: (open: boolean) => void; // Function to change parent state
+  onSaveSuccess: (updatedContact: Contact) => void; // Callback for successful save
 }
 
-export function EditContactDialog({ contact, triggerButton, open, onOpenChange, onSaveSuccess }: EditContactDialogProps) {
-  const [isLoading, setIsLoading] = React.useState(false);
+export function EditContactDialog({
+  contact,
+  triggerButton,
+  open,
+  onOpenChange,
+  onSaveSuccess
+}: EditContactDialogProps) {
 
-  // TODO: Replace with actual API call
-  const handleEditContact = async (values: { name: string; phoneNumber: string }) => {
-    if (!contact?.id) return; // Need ID to edit
-
-    setIsLoading(true);
-    console.log(`Editing contact ${contact.id}:`, values);
-    try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      // Assume success
-      toast({
-        title: "Contact Updated",
-        description: `${values.name}'s information has been updated.`,
-      });
-      onOpenChange(false); // Close dialog
-      onSaveSuccess?.(); // Call success callback
-    } catch (error) {
-      console.error("Failed to edit contact:", error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Failed to update contact. Please try again.",
-      });
-    } finally {
-      setIsLoading(false);
-    }
+  // This function will be called by ContactForm upon successful submission
+  const handleEditSuccess = (updatedContact: Contact) => {
+    onOpenChange(false); // Close the dialog using the provided handler
+    onSaveSuccess(updatedContact); // Call the parent's success handler
   };
 
-  // Ensure the dialog only renders content when a contact is provided
-  // And reset the form via ContactForm's useEffect when contact changes
+  // Handler to close the dialog from the form's Cancel button
+  const handleCancel = () => {
+    onOpenChange(false);
+  };
+
+  // Conditional rendering based on whether a contact is provided
+  // This prevents trying to render the form with null data
+  if (!contact && open) {
+      console.warn("EditContactDialog opened without a contact.");
+      // Optionally close the dialog automatically if opened without a contact
+      // React.useEffect(() => { onOpenChange(false); }, [onOpenChange]);
+      return null; // Or render some placeholder/error state
+  }
+
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
+      {/* Only render trigger if provided */}
       {triggerButton && <DialogTrigger asChild>{triggerButton}</DialogTrigger>}
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
@@ -65,13 +61,18 @@ export function EditContactDialog({ contact, triggerButton, open, onOpenChange, 
             Update the contact details. Click save when you're done.
           </DialogDescription>
         </DialogHeader>
-        {/* Pass contact data to the form */}
-        <ContactForm
-            initialData={contact}
-            onSubmit={handleEditContact}
-            isLoading={isLoading}
-            submitButtonText="Save Changes"
-        />
+        {/*
+          Render ContactForm only if 'open' is true and 'contact' is not null.
+          Pass the initialData, the success handler, and the cancel handler.
+        */}
+        {open && contact && (
+           <ContactForm
+                initialData={contact}
+                onSubmitSuccess={handleEditSuccess}
+                onCancel={handleCancel}
+                submitButtonText="Save Changes"
+           />
+        )}
       </DialogContent>
     </Dialog>
   );

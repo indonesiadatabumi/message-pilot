@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm, Controller } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import * as z from "zod";
 import { CalendarIcon } from "lucide-react";
 import { format } from "date-fns";
@@ -25,12 +25,14 @@ import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { ContactSelector } from "./contact-selector";
 import { TemplateSelector } from "./template-selector";
-import { Alert, AlertDescription } from "@/components/ui/alert"; // For showing template preview
-import { Contact, MessageTemplate, sendTemplateMessage, scheduleMessage } from "@/services/message-service";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import type { Contact, MessageTemplate } from "@/services/message-service"; // Use type imports
+import { handleSendTemplateMessage } from "@/actions/message-actions"; // Import the server action
 
 // Helper to extract parameters from template content (e.g., {{name}})
-const extractParams = (content: string): string[] => {
-  const regex = /\{\{([^}]+)\}\}/g;
+const extractParams = (content: string | undefined): string[] => {
+  if (!content) return [];
+  const regex = /\{\{\s*([^}]+?)\s*\}\}/g; // Allow optional spaces around param name
   const params = new Set<string>();
   let match;
   while ((match = regex.exec(content)) !== null) {
@@ -39,36 +41,25 @@ const extractParams = (content: string): string[] => {
   return Array.from(params);
 };
 
-
-// Dynamically create schema based on selected template
-const createTemplateSchema = (params: string[]) => {
+// Dynamically create schema based on selected template parameters
+const createTemplateMessageSchema = (params: string[]) => {
    const paramsSchema = params.reduce((acc, paramName) => {
-        // Sanitize paramName if necessary, e.g., replace spaces or special chars if needed for JS keys
-        // const safeParamName = paramName.replace(/[^a-zA-Z0-9_]/g, '_');
         acc[paramName] = z.string().min(1, { message: `Parameter '{{${paramName}}}' cannot be empty.` });
         return acc;
     }, {} as Record<string, z.ZodString>);
 
-
   return z.object({
-    // Recipient can be single or multiple based on a switch/mode, start with single
-     recipient: z.custom<Contact>((val) => val instanceof Object && 'id' in val, { // Simplified check
+     recipient: z.custom<Contact>((val) => val instanceof Object && '_id' in val && 'phone' in val, { // Use 'phone'
          message: "Please select a recipient.",
       }),
-     // recipients: z.array(z.custom<Contact>()).min(1, { message: "Please select at least one recipient."}), // For multi-select later
-      template: z.custom<MessageTemplate>((val) => val instanceof Object && 'id' in val, {
+      template: z.custom<MessageTemplate>((val) => val instanceof Object && '_id' in val, {
           message: "Please select a template.",
       }),
-      parameters: z.object(paramsSchema),
+      parameters: z.object(paramsSchema), // Parameters object schema
       scheduleEnabled: z.boolean().default(false),
       scheduledDate: z.date().optional(),
-      scheduledTime: z.string().optional(),
-    }).refine(data => {
-        if (data.scheduleEnabled) {
-        return data.scheduledDate && data.scheduledTime && /^\d{2}:\d{2}$/.test(data.scheduledTime);
-        }
-        return true;
-    }, {
+      scheduledTime: z.string().optional(), // HH:MM format
+    }).refine(data => !data.scheduleEnabled || (data.scheduledDate && data.scheduledTime && /^\d{2}:\d{2}$/.test(data.scheduledTime)), {
         message: "Please select a valid date and time for scheduled messages.",
         path: ["scheduledTime"],
     }).refine(data => {
@@ -78,7 +69,7 @@ const createTemplateSchema = (params: string[]) => {
                 const scheduledDateTime = new Date(data.scheduledDate);
                 scheduledDateTime.setHours(hours, minutes, 0, 0);
                 return scheduledDateTime > new Date();
-            } catch (e) { return false; }
+            } catch { return false; }
         }
         return true;
     }, {
@@ -86,6 +77,9 @@ const createTemplateSchema = (params: string[]) => {
         path: ["scheduledTime"],
     });
 };
+
+// Define the type based on the schema creation function for use in the component
+type DynamicTemplateMessageFormValues = z.infer<ReturnType<typeof createTemplateMessageSchema>>;
 
 
 interface SendTemplateMessageFormProps {
@@ -96,15 +90,16 @@ interface SendTemplateMessageFormProps {
 export function SendTemplateMessageForm({ contacts, templates }: SendTemplateMessageFormProps) {
   const [isLoading, setIsLoading] = React.useState(false);
   const [currentParams, setCurrentParams] = React.useState<string[]>([]);
-  const [currentSchema, setCurrentSchema] = React.useState(() => createTemplateSchema([])); // Initial empty schema
+  // Initialize with an empty schema, it will be updated by useEffect
+  const [currentSchema, setCurrentSchema] = React.useState(() => createTemplateMessageSchema([]));
 
-
-  const form = useForm<z.infer<typeof currentSchema>>({
-    resolver: zodResolver(currentSchema),
+  // Initialize form with the dynamic schema
+  const form = useForm<DynamicTemplateMessageFormValues>({
+    resolver: zodResolver(currentSchema), // Use the state variable for the schema
     defaultValues: {
       recipient: undefined,
       template: undefined,
-      parameters: {},
+      parameters: {}, // Default to empty object
       scheduleEnabled: false,
       scheduledDate: undefined,
       scheduledTime: "",
@@ -114,90 +109,130 @@ export function SendTemplateMessageForm({ contacts, templates }: SendTemplateMes
   const selectedTemplate = form.watch("template");
   const scheduleEnabled = form.watch("scheduleEnabled");
 
-   // Update schema and params when template changes
+   // --- Effect to Update Schema and Reset Parameters ---
    React.useEffect(() => {
-    const newParams = selectedTemplate ? extractParams(selectedTemplate.content) : [];
-    setCurrentParams(newParams);
-    const newSchema = createTemplateSchema(newParams);
-    setCurrentSchema(newSchema);
+    const newParams = extractParams(selectedTemplate?.content);
+    const needsUpdate = JSON.stringify(newParams) !== JSON.stringify(currentParams);
 
-    // Reset parameters field but keep others
-    const currentValues = form.getValues();
-    const defaultParams = newParams.reduce((acc, param) => ({ ...acc, [param]: '' }), {});
+    if (needsUpdate) {
+        setCurrentParams(newParams);
+        const newSchema = createTemplateMessageSchema(newParams);
+        setCurrentSchema(newSchema); // Update the schema state
 
-    form.reset({
-        ...currentValues,
-        parameters: defaultParams, // Reset only parameters
-    }, { keepDirty: false, keepErrors: false, keepValues: true }); // Keep other fields
+        // Reset form with new schema and default parameters
+        const currentValues = form.getValues();
+        const defaultParams = newParams.reduce((acc, param) => ({ ...acc, [param]: '' }), {});
 
-  }, [selectedTemplate, form]);
+        form.reset(
+            {
+                // Keep existing values for non-parameter fields
+                recipient: currentValues.recipient,
+                template: currentValues.template,
+                scheduleEnabled: currentValues.scheduleEnabled,
+                scheduledDate: currentValues.scheduledDate,
+                scheduledTime: currentValues.scheduledTime,
+                parameters: defaultParams, // Reset parameters to defaults for the new template
+            },
+            {
+                // keepStateOptions:
+                keepDirty: false, // Mark the form as pristine after reset
+                keepErrors: false, // Clear previous errors
+                keepIsValid: false, // Re-evaluate validity based on new schema/values
+                // keepValues: false // Don't keep old parameter values
+            }
+        );
+         // Force re-validation after schema change and reset
+         // Use setTimeout to ensure validation runs after state updates settle
+         setTimeout(() => form.trigger(), 0);
+    }
+  }, [selectedTemplate, form, currentParams]); // Add currentParams dependency
 
-    // Re-validate when schema changes
-    React.useEffect(() => {
-        form.trigger();
-    }, [currentSchema, form]);
+
+   // --- Effect to Update Form Resolver ---
+   React.useEffect(() => {
+     // Update the resolver in the form instance when the schema changes
+     form.reset(form.getValues(), {
+       // keepStateOptions
+       keepDirty: true, // Keep dirty state if user was editing
+       keepErrors: true, // Keep existing errors unless corrected
+       keepIsValid: false, // Need to re-evaluate validity
+       keepValues: true, // Keep current field values
+     });
+     // @ts-ignore - Accessing internal RHF property to update resolver
+     form.control.resolver = zodResolver(currentSchema);
+      // Trigger validation after updating the resolver
+      setTimeout(() => form.trigger(), 0);
+   }, [currentSchema, form]);
 
 
 
-  const onSubmit = async (values: z.infer<typeof currentSchema>) => {
+  const onSubmit = async (values: DynamicTemplateMessageFormValues) => {
     setIsLoading(true);
-    const { recipient, template, parameters, scheduleEnabled, scheduledDate, scheduledTime } = values;
+
+    // Ensure template is selected (should be caught by validation, but good practice)
+    if (!values.template) {
+        toast({ variant: "destructive", title: "Error", description: "Please select a template." });
+        setIsLoading(false);
+        return;
+    }
+
+    // Pass the current parameter list needed by the template to the action
+    const paramsForAction = extractParams(values.template.content);
 
     try {
-        const messageDetails = {
-            recipient: recipient.phoneNumber, // Assuming service needs phone number
-            template: template,
-            params: parameters,
-        };
+        // Call the server action, passing form values and the expected param list
+        const result = await handleSendTemplateMessage(values, paramsForAction);
 
-       if (scheduleEnabled && scheduledDate && scheduledTime) {
-            const [hours, minutes] = scheduledTime.split(':').map(Number);
-            const scheduledDateTime = new Date(scheduledDate);
-            scheduledDateTime.setHours(hours, minutes, 0, 0);
-
-            // Currently scheduleMessage might not support templates/params directly.
-            // We might need to render the template content first.
-            let filledContent = template.content;
-            Object.entries(parameters).forEach(([key, value]) => {
-                filledContent = filledContent.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
-            });
-
-            await scheduleMessage({
-                 recipient: recipient.phoneNumber,
-                 content: filledContent, // Send filled content
-                 scheduledTime: scheduledDateTime,
-            });
-
+        if (result.success) {
             toast({
-                title: "Template Message Scheduled",
-                description: `Your message using template "${template.name}" to ${recipient.name} is scheduled for ${format(scheduledDateTime, "PPP p")}.`,
-             });
-
-       } else {
-           await sendTemplateMessage(messageDetails.recipient, messageDetails.template, messageDetails.params);
-           toast({
-             title: "Template Message Sent",
-             description: `Your message using template "${template.name}" has been sent to ${recipient.name}.`,
-           });
-       }
-       form.reset(); // Reset form on success
-       setCurrentParams([]); // Clear params state as well
+                title: scheduleEnabled ? "Template Message Scheduled" : "Template Message Sent",
+                description: result.message,
+            });
+            form.reset(); // Reset form
+            setCurrentParams([]); // Reset local param state
+             // Manually reset the schema to empty if needed after successful submission
+            // setCurrentSchema(createTemplateMessageSchema([]));
+        } else {
+            // Handle validation or server errors from the action
+            if (result.fieldErrors) {
+                 Object.entries(result.fieldErrors).forEach(([field, messages]) => {
+                    // Handle potentially nested parameter errors (e.g., 'parameters.name')
+                    const fieldName = field as keyof DynamicTemplateMessageFormValues | `parameters.${string}`;
+                    if (messages && messages.length > 0) {
+                        form.setError(fieldName as any, { // Use 'any' for dynamic field names
+                            type: 'server',
+                            message: messages[0],
+                        });
+                    }
+                 });
+                 toast({
+                    variant: "destructive",
+                    title: "Validation Error",
+                    description: result.error || "Please check the form.",
+                 });
+            } else {
+                toast({
+                    variant: "destructive",
+                    title: "Error",
+                    description: result.error || `Failed to ${scheduleEnabled ? 'schedule' : 'send'} template message.`,
+                });
+            }
+        }
     } catch (error) {
-       console.error("Failed to send/schedule template message:", error);
-       toast({
-         variant: "destructive",
-         title: "Error",
-         description: `Failed to ${scheduleEnabled ? 'schedule' : 'send'} template message. Please try again.`,
-       });
+        console.error("Error submitting template message form:", error);
+        toast({
+            variant: "destructive",
+            title: "Error",
+            description: "An unexpected error occurred. Please try again.",
+        });
     } finally {
-       setIsLoading(false);
+        setIsLoading(false);
     }
   };
 
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-        {/* Recipient Selector (Single for now) */}
          <FormField
           control={form.control}
           name="recipient"
@@ -216,7 +251,6 @@ export function SendTemplateMessageForm({ contacts, templates }: SendTemplateMes
           )}
         />
 
-        {/* Template Selector */}
         <FormField
           control={form.control}
           name="template"
@@ -237,7 +271,7 @@ export function SendTemplateMessageForm({ contacts, templates }: SendTemplateMes
           )}
         />
 
-        {/* Dynamic Parameter Inputs */}
+        {/* Dynamic Parameter Inputs - Render based on currentParams state */}
         {selectedTemplate && currentParams.length > 0 && (
             <div className="space-y-4 p-4 border rounded-md">
                  <FormLabel className="text-base font-medium">Fill Parameters</FormLabel>
@@ -251,7 +285,7 @@ export function SendTemplateMessageForm({ contacts, templates }: SendTemplateMes
                       <FormField
                         key={paramName}
                         control={form.control}
-                        // Use Controller for dynamically nested field names
+                        // Use dot notation for nested parameter fields
                         name={`parameters.${paramName}`}
                         render={({ field }) => (
                             <FormItem>

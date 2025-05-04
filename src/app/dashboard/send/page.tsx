@@ -3,26 +3,21 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { SendPrivateMessageForm } from "@/components/messaging/send-private-message-form";
 import { SendBroadcastMessageForm } from "@/components/messaging/send-broadcast-message-form";
 import { SendTemplateMessageForm } from "@/components/messaging/send-template-message-form";
-import { Contact, MessageTemplate } from "@/services/message-service";
-
-// Mock data - Replace with API fetching
-const mockContacts: Contact[] = [
-  { id: '1', name: 'Alice Wonderland', phoneNumber: '+1234567890' },
-  { id: '2', name: 'Bob The Builder', phoneNumber: '+0987654321' },
-  { id: '3', name: 'Charlie Chaplin', phoneNumber: '+1122334455' },
-];
-
-const mockTemplates: MessageTemplate[] = [
-  { id: 't1', name: 'Welcome Message', content: 'Hi {{name}}, welcome aboard!' },
-  { id: 't2', name: 'Appointment Reminder', content: 'Reminder: Your appointment is on {{date}} at {{time}}.' },
-  { id: 't3', name: 'Promotional Offer', content: 'Special offer for {{product}}! Get {{discount}} off today.' },
-];
-
+import { getContacts } from "@/actions/contact-actions"; // Import contact action
+import { getTemplates } from "@/actions/template-actions"; // Import template action
+import type { Contact, MessageTemplate } from "@/services/message-service"; // Keep type imports
 
 export default async function SendMessagePage() {
-  // TODO: Fetch contacts and templates from API
-  const contacts = mockContacts;
-  const templates = mockTemplates;
+  // Fetch contacts and templates using server actions
+  // Use Promise.all for parallel fetching
+  const [contacts, templates] = await Promise.all([
+    getContacts(),
+    getTemplates()
+  ]);
+
+  // Ensure IDs are strings for client components if necessary (actions already do this)
+   const formattedContacts: Contact[] = contacts.map(c => ({ ...c, _id: c._id?.toString() }));
+   const formattedTemplates: MessageTemplate[] = templates.map(t => ({ ...t, _id: t._id?.toString() }));
 
   return (
     <div className="container mx-auto py-8">
@@ -42,7 +37,8 @@ export default async function SendMessagePage() {
               <CardDescription>Send a message to a single contact.</CardDescription>
             </CardHeader>
             <CardContent>
-              <SendPrivateMessageForm contacts={contacts} />
+              {/* Pass fetched contacts */}
+              <SendPrivateMessageForm contacts={formattedContacts} />
             </CardContent>
           </TabsContent>
 
@@ -52,7 +48,8 @@ export default async function SendMessagePage() {
               <CardDescription>Send the same message to multiple contacts.</CardDescription>
             </CardHeader>
             <CardContent>
-              <SendBroadcastMessageForm contacts={contacts} />
+               {/* Pass fetched contacts */}
+              <SendBroadcastMessageForm contacts={formattedContacts} />
             </CardContent>
           </TabsContent>
 
@@ -62,7 +59,8 @@ export default async function SendMessagePage() {
               <CardDescription>Select a template and recipient(s), then fill in parameters.</CardDescription>
             </CardHeader>
             <CardContent>
-              <SendTemplateMessageForm contacts={contacts} templates={templates} />
+               {/* Pass fetched contacts and templates */}
+              <SendTemplateMessageForm contacts={formattedContacts} templates={formattedTemplates} />
             </CardContent>
           </TabsContent>
         </Card>

@@ -2,17 +2,12 @@ import { ContactTable } from '@/components/contacts/contact-table';
 import { AddContactDialog } from '@/components/contacts/add-contact-dialog';
 import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
-
-// Mock data - Replace with API fetching
-const mockContacts = [
-  { id: '1', name: 'Alice Wonderland', phoneNumber: '+1234567890' },
-  { id: '2', name: 'Bob The Builder', phoneNumber: '+0987654321' },
-  { id: '3', name: 'Charlie Chaplin', phoneNumber: '+1122334455' },
-];
+import { getContacts } from '@/actions/contact-actions'; // Import server action
+import type { Contact } from '@/services/message-service'; // Keep type import
 
 export default async function ContactsPage() {
-  // TODO: Fetch contacts from API
-  const contacts = mockContacts;
+  // Fetch contacts using the server action
+  const contacts: Contact[] = await getContacts();
 
   return (
     <div className="container mx-auto py-8">
@@ -24,6 +19,7 @@ export default async function ContactsPage() {
           </Button>
         } />
       </div>
+      {/* Pass fetched contacts to the table */}
       <ContactTable contacts={contacts} />
     </div>
   );

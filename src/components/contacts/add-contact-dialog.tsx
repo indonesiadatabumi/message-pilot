@@ -8,46 +8,40 @@ import {
   DialogTitle,
   DialogDescription,
   DialogTrigger,
+  DialogClose // Import DialogClose for explicit closing if needed elsewhere
 } from "@/components/ui/dialog";
 import { ContactForm } from "./contact-form";
-import { toast } from "@/hooks/use-toast"; // Correct import path
+import type { Contact } from "@/services/message-service";
+import { useRouter } from 'next/navigation'; // Import useRouter for refresh
 
 interface AddContactDialogProps {
   triggerButton: React.ReactNode;
-  // TODO: Add function to refresh data on successful add
+  // Consider adding an optional onAddSuccess callback if parent needs to react
+  // onAddSuccess?: (newContact: Contact) => void;
 }
 
-export function AddContactDialog({ triggerButton }: AddContactDialogProps) {
+export function AddContactDialog({ triggerButton /*, onAddSuccess */ }: AddContactDialogProps) {
   const [open, setOpen] = React.useState(false);
-  const [isLoading, setIsLoading] = React.useState(false);
+  const router = useRouter(); // Get router instance
 
-  // TODO: Replace with actual API call
-  const handleAddContact = async (values: { name: string; phoneNumber: string }) => {
-    setIsLoading(true);
-    console.log("Adding contact:", values);
-    try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      // Assume success
-      toast({
-        title: "Contact Added",
-        description: `${values.name} has been added to your contacts.`,
-      });
-      setOpen(false); // Close dialog on success
-      // TODO: Call refresh function here
-    } catch (error) {
-      console.error("Failed to add contact:", error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Failed to add contact. Please try again.",
-      });
-    } finally {
-      setIsLoading(false);
-    }
+  // This function will be called by ContactForm upon successful submission
+  const handleAddSuccess = (newContact: Contact) => {
+    setOpen(false); // Close the dialog
+    // Optional: Call parent callback if provided
+    // onAddSuccess?.(newContact);
+
+    // Revalidate data on the client side by refreshing the page router
+    // This is simpler than managing complex state updates across components
+    router.refresh();
+  };
+
+  // Handler to close the dialog from the form's Cancel button
+  const handleCancel = () => {
+    setOpen(false);
   };
 
   return (
+    // Control the dialog's open state
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{triggerButton}</DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
@@ -57,7 +51,22 @@ export function AddContactDialog({ triggerButton }: AddContactDialogProps) {
             Enter the details for the new contact. Click save when you're done.
           </DialogDescription>
         </DialogHeader>
-        <ContactForm onSubmit={handleAddContact} isLoading={isLoading} submitButtonText="Add Contact"/>
+        {/*
+          ContactForm now handles the submission via server actions internally.
+          We pass onSubmitSuccess to close the dialog and potentially refresh data.
+          We pass onCancel to allow the form's cancel button to close the dialog.
+        */}
+        <ContactForm
+            onSubmitSuccess={handleAddSuccess}
+            onCancel={handleCancel}
+            submitButtonText="Add Contact"
+            // No initialData needed for adding
+        />
+        {/*
+           No separate footer/buttons needed here if they are inside ContactForm
+           If ContactForm didn't have buttons, you'd add DialogFooter and buttons here,
+           triggering form submission via a ref or state.
+        */}
       </DialogContent>
     </Dialog>
   );

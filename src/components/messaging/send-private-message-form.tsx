@@ -21,38 +21,33 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { Input } from "@/components/ui/input"; // For time input
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { ContactSelector } from "./contact-selector";
-import { Contact, sendPrivateMessage, scheduleMessage } from "@/services/message-service";
+import type { Contact } from "@/services/message-service"; // Use type import
+import { handleSendPrivateMessage } from "@/actions/message-actions"; // Import the server action
 
+// Schema should align with the action's expected input structure
 const formSchema = z.object({
-  recipient: z.custom<Contact>((val) => val instanceof Object && 'id' in val && 'name' in val && 'phoneNumber' in val, {
+  recipient: z.custom<Contact>((val) => val instanceof Object && '_id' in val && 'name' in val && 'phone' in val, { // Use 'phone'
     message: "Please select a recipient.",
   }),
   content: z.string().min(1, { message: "Message content cannot be empty." }).max(1000, {message: "Message too long."}),
   scheduleEnabled: z.boolean().default(false),
   scheduledDate: z.date().optional(),
   scheduledTime: z.string().optional(), // Store time as HH:MM string
-}).refine(data => {
-    // If schedule is enabled, date and time must be provided
-    if (data.scheduleEnabled) {
-      return data.scheduledDate && data.scheduledTime && /^\d{2}:\d{2}$/.test(data.scheduledTime);
-    }
-    return true;
-}, {
+}).refine(data => !data.scheduleEnabled || (data.scheduledDate && data.scheduledTime && /^\d{2}:\d{2}$/.test(data.scheduledTime)), {
     message: "Please select a valid date and time for scheduled messages.",
-    path: ["scheduledTime"], // Point error to time field, but applies if date is missing too
+    path: ["scheduledTime"],
 }).refine(data => {
-    // If schedule is enabled, ensure the combined date and time is in the future
      if (data.scheduleEnabled && data.scheduledDate && data.scheduledTime) {
         try {
             const [hours, minutes] = data.scheduledTime.split(':').map(Number);
             const scheduledDateTime = new Date(data.scheduledDate);
-            scheduledDateTime.setHours(hours, minutes, 0, 0); // Set H, M, S, MS
-            return scheduledDateTime > new Date(); // Check if schedule time is in the future
-        } catch (e) { return false; } // Invalid time format etc.
+            scheduledDateTime.setHours(hours, minutes, 0, 0);
+            return scheduledDateTime > new Date();
+        } catch { return false; }
      }
      return true;
 }, {
@@ -85,38 +80,48 @@ export function SendPrivateMessageForm({ contacts }: SendPrivateMessageFormProps
 
   const onSubmit = async (values: PrivateMessageFormValues) => {
     setIsLoading(true);
-    const { recipient, content, scheduleEnabled, scheduledDate, scheduledTime } = values;
 
     try {
-       if (scheduleEnabled && scheduledDate && scheduledTime) {
-            const [hours, minutes] = scheduledTime.split(':').map(Number);
-            const scheduledDateTime = new Date(scheduledDate);
-            scheduledDateTime.setHours(hours, minutes, 0, 0);
+       // Call the server action directly with the form values
+       const result = await handleSendPrivateMessage(values);
 
-            await scheduleMessage({
-                 recipient: recipient.phoneNumber, // Assuming service takes phone number
-                 content: content,
-                 scheduledTime: scheduledDateTime,
-            });
-            toast({
-                title: "Message Scheduled",
-                description: `Your message to ${recipient.name} is scheduled for ${format(scheduledDateTime, "PPP p")}.`,
-             });
-
-       } else {
-           await sendPrivateMessage(recipient.phoneNumber, content); // Assuming service takes phone number
+       if (result.success) {
            toast({
-             title: "Message Sent",
-             description: `Your message has been sent to ${recipient.name}.`,
+             title: scheduleEnabled ? "Message Scheduled" : "Message Sent",
+             description: result.message, // Use message from action result
            });
+           form.reset(); // Reset form on success
+       } else {
+            // Handle validation or server errors from the action
+            if (result.fieldErrors) {
+                 Object.entries(result.fieldErrors).forEach(([field, messages]) => {
+                    if (messages && messages.length > 0) {
+                        form.setError(field as keyof PrivateMessageFormValues, {
+                            type: 'server',
+                            message: messages[0],
+                        });
+                    }
+                 });
+                 toast({
+                    variant: "destructive",
+                    title: "Validation Error",
+                    description: result.error || "Please check the form.",
+                 });
+            } else {
+                toast({
+                    variant: "destructive",
+                    title: "Error",
+                    description: result.error || `Failed to ${scheduleEnabled ? 'schedule' : 'send'} message.`,
+                });
+            }
        }
-       form.reset(); // Reset form on success
     } catch (error) {
-       console.error("Failed to send/schedule message:", error);
+       // Handle unexpected errors during action call
+       console.error("Error submitting private message form:", error);
        toast({
          variant: "destructive",
          title: "Error",
-         description: `Failed to ${scheduleEnabled ? 'schedule' : 'send'} message. Please try again.`,
+         description: "An unexpected error occurred. Please try again.",
        });
     } finally {
        setIsLoading(false);

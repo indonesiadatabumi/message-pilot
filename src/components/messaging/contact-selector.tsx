@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronsUpDown } from "lucide-react";
+import { Check, ChevronsUpDown, XIcon } from "lucide-react"; // Ensure XIcon is imported or defined
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -12,14 +12,14 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from "@/components/ui/command";
+} from "@/components/ui/command"; // Adjusted import path if corrected previously
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
-import { Contact } from "@/services/message-service";
+import type { Contact } from "@/services/message-service"; // Use type import
 
 interface ContactSelectorProps {
   contacts: Contact[];
@@ -45,7 +45,8 @@ export function ContactSelector({
   const handleSelect = (contact: Contact) => {
     if (multiple) {
       const currentSelected = Array.isArray(selected) ? selected : [];
-      const index = currentSelected.findIndex((c) => c.id === contact.id);
+      // Use _id for comparison
+      const index = currentSelected.findIndex((c) => c._id === contact._id);
       let newSelected: Contact[];
       if (index > -1) {
         // Deselect
@@ -69,18 +70,20 @@ export function ContactSelector({
       const count = Array.isArray(selected) ? selected.length : 0;
       return `${count} contact${count !== 1 ? 's' : ''} selected`;
     } else {
+      // Display name for single select
       return selected && !Array.isArray(selected) ? selected.name : placeholder;
     }
   };
 
   const selectedValues = React.useMemo(() => {
+     // Use _id for the Set keys
     if (multiple && Array.isArray(selected)) {
-      return new Set(selected.map(c => c.id));
+      return new Set(selected.map(c => c._id?.toString()));
     }
     if (!multiple && selected && !Array.isArray(selected)) {
-       return new Set([selected.id]);
+       return new Set([selected._id?.toString()]);
     }
-    return new Set();
+    return new Set<string | undefined>();
   }, [selected, multiple]);
 
 
@@ -107,16 +110,20 @@ export function ContactSelector({
             <CommandGroup>
               {contacts.map((contact) => (
                 <CommandItem
-                  key={contact.id}
-                  value={`${contact.name} ${contact.phoneNumber}`} // Searchable value
+                  // Use _id as key
+                  key={contact._id?.toString()}
+                  // Use name and phone for search value
+                  value={`${contact.name} ${contact.phone}`}
                   onSelect={() => handleSelect(contact)}
                   className="flex justify-between items-center"
                 >
-                   <span>{contact.name} ({contact.phoneNumber})</span>
+                   {/* Display name and phone */}
+                   <span>{contact.name} ({contact.phone})</span>
                   <Check
                     className={cn(
                       "mr-2 h-4 w-4",
-                      selectedValues.has(contact.id) ? "opacity-100" : "opacity-0"
+                      // Check against stringified _id in the Set
+                      selectedValues.has(contact._id?.toString()) ? "opacity-100" : "opacity-0"
                     )}
                   />
                 </CommandItem>
@@ -129,7 +136,8 @@ export function ContactSelector({
                 <p className="text-xs text-muted-foreground mb-2">Selected:</p>
                 <div className="flex flex-wrap gap-1">
                     {selected.map(contact => (
-                        <Badge key={contact.id} variant="secondary" className="flex items-center gap-1">
+                        // Use _id as key for badge
+                        <Badge key={contact._id?.toString()} variant="secondary" className="flex items-center gap-1">
                             {contact.name}
                             <button
                                 onClick={(e) => {
@@ -152,23 +160,23 @@ export function ContactSelector({
 }
 
 
-// Minimal XIcon for badge removal
-function XIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M18 6 6 18" />
-      <path d="m6 6 12 12" />
-    </svg>
-  )
-}
+// Minimal XIcon if not imported from lucide-react (if it exists there)
+// function XIcon(props: React.SVGProps<SVGSVGElement>) {
+//   return (
+//     <svg
+//       {...props}
+//       xmlns="http://www.w3.org/2000/svg"
+//       width="24"
+//       height="24"
+//       viewBox="0 0 24 24"
+//       fill="none"
+//       stroke="currentColor"
+//       strokeWidth="2"
+//       strokeLinecap="round"
+//       strokeLinejoin="round"
+//     >
+//       <path d="M18 6 6 18" />
+//       <path d="m6 6 12 12" />
+//     </svg>
+//   )
+// }

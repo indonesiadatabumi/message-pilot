@@ -25,20 +25,17 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { ContactSelector } from "./contact-selector";
-import { Contact, sendBroadcastMessage, scheduleMessage } from "@/services/message-service";
+import type { Contact } from "@/services/message-service"; // Use type import
+import { handleSendBroadcastMessage } from "@/actions/message-actions"; // Import the server action
 
+// Schema should align with the action's expected input structure
 const formSchema = z.object({
-  recipients: z.array(z.custom<Contact>()).min(1, { message: "Please select at least one recipient."}),
+  recipients: z.array(z.custom<Contact>((val): val is Contact => val instanceof Object && '_id' in val && 'phone' in val)).min(1, { message: "Please select at least one recipient."}), // Validate Contact shape
   content: z.string().min(1, { message: "Message content cannot be empty." }).max(1000, {message: "Message too long."}),
   scheduleEnabled: z.boolean().default(false),
   scheduledDate: z.date().optional(),
-  scheduledTime: z.string().optional(),
-}).refine(data => {
-    if (data.scheduleEnabled) {
-      return data.scheduledDate && data.scheduledTime && /^\d{2}:\d{2}$/.test(data.scheduledTime);
-    }
-    return true;
-}, {
+  scheduledTime: z.string().optional(), // HH:MM format
+}).refine(data => !data.scheduleEnabled || (data.scheduledDate && data.scheduledTime && /^\d{2}:\d{2}$/.test(data.scheduledTime)), {
     message: "Please select a valid date and time for scheduled messages.",
     path: ["scheduledTime"],
 }).refine(data => {
@@ -48,7 +45,7 @@ const formSchema = z.object({
             const scheduledDateTime = new Date(data.scheduledDate);
             scheduledDateTime.setHours(hours, minutes, 0, 0);
             return scheduledDateTime > new Date();
-        } catch (e) { return false; }
+        } catch { return false; }
      }
      return true;
 }, {
@@ -81,44 +78,49 @@ export function SendBroadcastMessageForm({ contacts }: SendBroadcastMessageFormP
 
   const onSubmit = async (values: BroadcastMessageFormValues) => {
     setIsLoading(true);
-    const { recipients, content, scheduleEnabled, scheduledDate, scheduledTime } = values;
-    const recipientPhoneNumbers = recipients.map(c => c.phoneNumber);
 
     try {
-       if (scheduleEnabled && scheduledDate && scheduledTime) {
-            const [hours, minutes] = scheduledTime.split(':').map(Number);
-            const scheduledDateTime = new Date(scheduledDate);
-            scheduledDateTime.setHours(hours, minutes, 0, 0);
+       // Call the server action
+       const result = await handleSendBroadcastMessage(values);
 
-            // Need to schedule one message per recipient for broadcast scheduling
-            // Or adjust scheduleMessage service if it supports bulk scheduling
-            await Promise.all(recipientPhoneNumbers.map(phone =>
-                 scheduleMessage({
-                     recipient: phone,
-                     content: content,
-                     scheduledTime: scheduledDateTime,
-                 })
-             ));
-
-            toast({
-                title: "Broadcast Scheduled",
-                description: `Your message to ${recipients.length} contacts is scheduled for ${format(scheduledDateTime, "PPP p")}.`,
-             });
-
-       } else {
-           await sendBroadcastMessage(recipientPhoneNumbers, content);
+       if (result.success) {
            toast({
-             title: "Broadcast Sent",
-             description: `Your message has been sent to ${recipients.length} contacts.`,
+             title: scheduleEnabled ? "Broadcast Scheduled" : "Broadcast Sent",
+             description: result.message, // Use message from action result
            });
+           form.reset(); // Reset form on success
+       } else {
+            // Handle validation or server errors from the action
+            if (result.fieldErrors) {
+                 Object.entries(result.fieldErrors).forEach(([field, messages]) => {
+                     // Note: fieldErrors might be for nested fields like 'recipients.0.name' if schema was more complex.
+                     // For a simple array, it might just be 'recipients'. Adjust as needed.
+                    if (messages && messages.length > 0) {
+                        form.setError(field as keyof BroadcastMessageFormValues, { // Adjust field type if necessary
+                            type: 'server',
+                            message: messages[0],
+                        });
+                    }
+                 });
+                 toast({
+                    variant: "destructive",
+                    title: "Validation Error",
+                    description: result.error || "Please check the form.",
+                 });
+            } else {
+                toast({
+                    variant: "destructive",
+                    title: "Error",
+                    description: result.error || `Failed to ${scheduleEnabled ? 'schedule' : 'send'} broadcast.`,
+                });
+            }
        }
-       form.reset(); // Reset form on success
     } catch (error) {
-       console.error("Failed to send/schedule broadcast:", error);
+       console.error("Error submitting broadcast message form:", error);
        toast({
          variant: "destructive",
          title: "Error",
-         description: `Failed to ${scheduleEnabled ? 'schedule' : 'send'} broadcast. Please try again.`,
+         description: "An unexpected error occurred. Please try again.",
        });
     } finally {
        setIsLoading(false);

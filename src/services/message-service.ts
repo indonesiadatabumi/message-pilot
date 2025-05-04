@@ -1,93 +1,46 @@
+// src/services/message-service.ts
+import type { ObjectId } from 'mongodb';
+
 /**
  * Represents a contact with name and phone number.
+ * Includes MongoDB ObjectId if fetched from DB.
  */
 export interface Contact {
-  /**
-   * The name of the contact.
-   */
+  _id?: ObjectId | string; // Use ObjectId or string for ID flexibility
   name: string;
-  /**
-   * The phone number of the contact.
-   */
-  phoneNumber: string;
+  phone: string; // Renamed from phoneNumber for consistency
 }
 
 /**
  * Represents a message template with a name and content.
+ * Includes MongoDB ObjectId if fetched from DB.
  */
 export interface MessageTemplate {
-  /**
-   * The name of the template.
-   */
+  _id?: ObjectId | string;
   name: string;
-  /**
-   * The content of the template.
-   */
   content: string;
 }
 
 /**
  * Represents a scheduled message with recipient, content, and scheduled time.
+ * Includes MongoDB ObjectId if fetched from DB.
  */
 export interface ScheduledMessage {
-  /**
-   * The recipient of the message.
-   */
-  recipient: string;
-  /**
-   * The content of the message.
-   */
-  content: string;
-  /**
-   * The scheduled time for the message.
-   */
-  scheduledTime: Date;
+    _id?: ObjectId | string;
+    recipient: string;
+    content: string;
+    scheduledTime: Date;
+    status: 'pending' | 'sent' | 'canceled' | 'failed'; // Add status tracking
+    createdAt: Date; // Track creation time
 }
 
-/**
- * Asynchronously sends a private message to a recipient.
- *
- * @param recipient The recipient of the message.
- * @param content The content of the message.
- * @returns A promise that resolves when the message is sent.
- */
-export async function sendPrivateMessage(recipient: string, content: string): Promise<void> {
-  // TODO: Implement this by calling an API.
-  console.log(`Sending private message to ${recipient}: ${content}`);
-}
 
-/**
- * Asynchronously sends a broadcast message to a list of recipients.
- *
- * @param recipients The list of recipients for the broadcast message.
- * @param content The content of the broadcast message.
- * @returns A promise that resolves when the broadcast message is sent.
- */
-export async function sendBroadcastMessage(recipients: string[], content: string): Promise<void> {
-  // TODO: Implement this by calling an API.
-  console.log(`Sending broadcast message to ${recipients.length} recipients: ${content}`);
-}
+// NOTE: Functions like sendPrivateMessage, sendBroadcastMessage, scheduleMessage, etc.,
+// were removed from here. Their logic is now implemented in Server Actions
+// (e.g., src/actions/message-actions.ts, src/actions/scheduled-message-actions.ts)
+// which directly interact with the database or external APIs.
 
-/**
- * Asynchronously sends a message using a template to a recipient, filling in the parameters.
- *
- * @param recipient The recipient of the message.
- * @param template The message template to use.
- * @param params The parameters to fill in the template.
- * @returns A promise that resolves when the message is sent.
- */
-export async function sendTemplateMessage(recipient: string, template: MessageTemplate, params: { [key: string]: string }): Promise<void> {
-  // TODO: Implement this by calling an API.
-  console.log(`Sending template message to ${recipient} using template ${template.name} with params: ${JSON.stringify(params)}`);
-}
-
-/**
- * Asynchronously schedules a message to be sent at a specified date and time.
- *
- * @param message The scheduled message to send.
- * @returns A promise that resolves when the message is scheduled.
- */
-export async function scheduleMessage(message: ScheduledMessage): Promise<void> {
-  // TODO: Implement this by calling an API.
-  console.log(`Scheduling message to ${message.recipient} for ${message.scheduledTime}: ${message.content}`);
+// Type for template parameters
+export interface TemplateParams {
+  [key: string]: string;
 }

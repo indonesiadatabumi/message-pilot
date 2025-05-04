@@ -12,45 +12,74 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/ui/button"; // For trigger styling if needed
 import { toast } from "@/hooks/use-toast";
-import { MessageTemplate } from "@/services/message-service";
+import type { MessageTemplate } from "@/services/message-service";
+import { deleteTemplate } from "@/actions/template-actions"; // Import server action
+import { cn } from "@/lib/utils"; // Import cn utility
 
 interface DeleteTemplateAlertProps {
-  template: MessageTemplate | null;
-  triggerButton?: React.ReactNode;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onConfirmDelete?: () => void;
+  template: MessageTemplate | null; // Template to delete
+  triggerButton?: React.ReactNode; // Trigger element
+  open: boolean; // Controlled externally
+  onOpenChange: (open: boolean) => void; // Update external state
+  onConfirmDelete: () => void; // Callback on successful delete
 }
 
-export function DeleteTemplateAlert({ template, triggerButton, open, onOpenChange, onConfirmDelete }: DeleteTemplateAlertProps) {
+export function DeleteTemplateAlert({
+    template,
+    triggerButton,
+    open,
+    onOpenChange,
+    onConfirmDelete
+}: DeleteTemplateAlertProps) {
   const [isLoading, setIsLoading] = React.useState(false);
 
   const handleDelete = async () => {
-    if (!template?.id) return;
+    if (!template?._id) {
+         toast({
+            variant: "destructive",
+            title: "Error",
+            description: "Cannot delete template: Invalid template data.",
+        });
+        onOpenChange(false);
+        return;
+    }
 
     setIsLoading(true);
-    console.log(`Deleting template ${template.id}: ${template.name}`);
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      // Assume success
-      toast({
-        title: "Template Deleted",
-        description: `Template "${template.name}" has been removed.`,
-      });
-      onOpenChange(false); // Close dialog
-      onConfirmDelete?.(); // Call callback
+      // Call the server action
+      const result = await deleteTemplate(template._id.toString());
+
+      if (result.success) {
+        toast({
+          title: "Template Deleted",
+          description: `Template "${template.name}" has been removed.`,
+        });
+        onConfirmDelete(); // Notify parent component
+        // Parent (TemplateTable) should handle closing the dialog
+        // onOpenChange(false); // Or close explicitly here
+      } else {
+         toast({
+          variant: "destructive",
+          title: "Error Deleting Template",
+          description: result.error || "Failed to delete template. Please try again.",
+        });
+        onOpenChange(false); // Close dialog on error
+      }
     } catch (error) {
       console.error("Failed to delete template:", error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to delete template. Please try again.",
+        description: "An unexpected error occurred while deleting the template.",
       });
-       setIsLoading(false);
-       onOpenChange(false);
+       onOpenChange(false); // Close on unexpected error
+    } finally {
+      // Ensure isLoading is reset, check if component might be unmounted
+       if (React.version) {
+            setIsLoading(false);
+       }
     }
   };
 
@@ -66,12 +95,14 @@ export function DeleteTemplateAlert({ template, triggerButton, open, onOpenChang
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel disabled={isLoading} onClick={() => onOpenChange(false)}>Cancel</AlertDialogCancel>
           <AlertDialogAction
             onClick={handleDelete}
             disabled={isLoading}
-            className={isLoading ? "opacity-50 cursor-not-allowed" : ""}
-            style={{ backgroundColor: 'hsl(var(--destructive))', color: 'hsl(var(--destructive-foreground))' }}
+            className={cn(
+                "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+                isLoading && "opacity-50 cursor-not-allowed"
+            )}
           >
             {isLoading ? "Deleting..." : "Delete"}
           </AlertDialogAction>

@@ -10,54 +10,47 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { TemplateForm } from "./template-form";
-import { toast } from "@/hooks/use-toast";
+import type { MessageTemplate } from "@/services/message-service";
+import { useRouter } from 'next/navigation'; // For refreshing data
 
 interface AddTemplateDialogProps {
   triggerButton: React.ReactNode;
-  // TODO: Add function to refresh data on successful add
+  // onAddSuccess?: (newTemplate: MessageTemplate) => void; // Optional callback
 }
 
-export function AddTemplateDialog({ triggerButton }: AddTemplateDialogProps) {
+export function AddTemplateDialog({ triggerButton /*, onAddSuccess */ }: AddTemplateDialogProps) {
   const [open, setOpen] = React.useState(false);
-  const [isLoading, setIsLoading] = React.useState(false);
+  const router = useRouter(); // Get router instance
 
-  // TODO: Replace with actual API call
-  const handleAddTemplate = async (values: { name: string; content: string }) => {
-    setIsLoading(true);
-    console.log("Adding template:", values);
-    try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      // Assume success
-      toast({
-        title: "Template Added",
-        description: `Template "${values.name}" has been created.`,
-      });
-      setOpen(false); // Close dialog on success
-      // TODO: Call refresh function here
-    } catch (error) {
-      console.error("Failed to add template:", error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Failed to add template. Please try again.",
-      });
-    } finally {
-      setIsLoading(false);
-    }
+  // Called by TemplateForm on successful submission
+  const handleAddSuccess = (newTemplate: MessageTemplate) => {
+    setOpen(false); // Close the dialog
+    // onAddSuccess?.(newTemplate); // Call parent callback if provided
+    router.refresh(); // Refresh server components/data
+  };
+
+  // Called by TemplateForm's Cancel button
+  const handleCancel = () => {
+    setOpen(false);
   };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{triggerButton}</DialogTrigger>
-      <DialogContent className="sm:max-w-md"> {/* Adjusted width */}
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Add New Template</DialogTitle>
           <DialogDescription>
-            Create a reusable message template. Use <code className="bg-muted px-1 rounded text-sm font-mono">{`{{parameter_name}}`}</code> for variables.
+            Create a reusable message template. Use <code className="bg-muted px-1 rounded text-sm font-mono">{`{{parameterName}}`}</code> for variables.
           </DialogDescription>
         </DialogHeader>
-        <TemplateForm onSubmit={handleAddTemplate} isLoading={isLoading} submitButtonText="Add Template"/>
+        {/* TemplateForm handles submission internally via server actions */}
+        <TemplateForm
+            onSubmitSuccess={handleAddSuccess}
+            onCancel={handleCancel}
+            submitButtonText="Add Template"
+            // No initialData needed for adding
+        />
       </DialogContent>
     </Dialog>
   );

@@ -2,17 +2,12 @@ import { TemplateTable } from '@/components/templates/template-table';
 import { AddTemplateDialog } from '@/components/templates/add-template-dialog';
 import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
-
-// Mock data - Replace with API fetching
-const mockTemplates = [
-  { id: 't1', name: 'Welcome Message', content: 'Hi {{name}}, welcome aboard!' },
-  { id: 't2', name: 'Appointment Reminder', content: 'Reminder: Your appointment is on {{date}} at {{time}}.' },
-  { id: 't3', name: 'Promotional Offer', content: 'Special offer for {{product}}! Get {{discount}} off today.' },
-];
+import { getTemplates } from '@/actions/template-actions'; // Import server action
+import type { MessageTemplate } from '@/services/message-service'; // Keep type import
 
 export default async function TemplatesPage() {
-  // TODO: Fetch templates from API
-  const templates = mockTemplates;
+  // Fetch templates using the server action
+  const templates: MessageTemplate[] = await getTemplates();
 
   return (
     <div className="container mx-auto py-8">
@@ -25,8 +20,9 @@ export default async function TemplatesPage() {
          }/>
       </div>
        <p className="text-muted-foreground mb-4">
-        Create and manage reusable message templates. Use double curly braces for parameters, e.g., <code className="bg-muted px-1 rounded text-sm font-mono">{`{{parameter_name}}`}</code>.
+        Create and manage reusable message templates. Use double curly braces for parameters, e.g., <code className="bg-muted px-1 rounded text-sm font-mono">{`{{parameterName}}`}</code>.
       </p>
+      {/* Pass fetched templates to the table */}
       <TemplateTable templates={templates} />
     </div>
   );

@@ -10,47 +10,40 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { TemplateForm } from "./template-form";
-import { toast } from "@/hooks/use-toast";
-import { MessageTemplate } from "@/services/message-service";
+import type { MessageTemplate } from "@/services/message-service";
 
 interface EditTemplateDialogProps {
-  template: MessageTemplate | null;
-  triggerButton?: React.ReactNode;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSaveSuccess?: () => void;
+  template: MessageTemplate | null; // Template to edit
+  triggerButton?: React.ReactNode; // Optional trigger
+  open: boolean; // Controlled by parent
+  onOpenChange: (open: boolean) => void; // To change parent state
+  onSaveSuccess: (updatedTemplate: MessageTemplate) => void; // Callback on success
 }
 
-export function EditTemplateDialog({ template, triggerButton, open, onOpenChange, onSaveSuccess }: EditTemplateDialogProps) {
-  const [isLoading, setIsLoading] = React.useState(false);
+export function EditTemplateDialog({
+    template,
+    triggerButton,
+    open,
+    onOpenChange,
+    onSaveSuccess
+}: EditTemplateDialogProps) {
 
-  // TODO: Replace with actual API call
-  const handleEditTemplate = async (values: { name: string; content: string }) => {
-    if (!template?.id) return;
-
-    setIsLoading(true);
-    console.log(`Editing template ${template.id}:`, values);
-    try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      // Assume success
-      toast({
-        title: "Template Updated",
-        description: `Template "${values.name}" has been updated.`,
-      });
-      onOpenChange(false); // Close dialog
-      onSaveSuccess?.(); // Call success callback
-    } catch (error) {
-      console.error("Failed to edit template:", error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Failed to update template. Please try again.",
-      });
-    } finally {
-      setIsLoading(false);
-    }
+  // Called by TemplateForm on successful submission
+  const handleEditSuccess = (updatedTemplate: MessageTemplate) => {
+    onOpenChange(false); // Close the dialog
+    onSaveSuccess(updatedTemplate); // Notify parent
   };
+
+  // Called by TemplateForm's Cancel button
+  const handleCancel = () => {
+    onOpenChange(false);
+  };
+
+   // Prevent rendering form with null data if opened incorrectly
+  if (!template && open) {
+      console.warn("EditTemplateDialog opened without a template.");
+      return null;
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -62,12 +55,15 @@ export function EditTemplateDialog({ template, triggerButton, open, onOpenChange
             Update the template details. Click save when you're done.
           </DialogDescription>
         </DialogHeader>
-        <TemplateForm
-          initialData={template}
-          onSubmit={handleEditTemplate}
-          isLoading={isLoading}
-          submitButtonText="Save Changes"
-        />
+         {/* Render TemplateForm only when open and template is available */}
+         {open && template && (
+            <TemplateForm
+                initialData={template}
+                onSubmitSuccess={handleEditSuccess}
+                onCancel={handleCancel}
+                submitButtonText="Save Changes"
+            />
+         )}
       </DialogContent>
     </Dialog>
   );

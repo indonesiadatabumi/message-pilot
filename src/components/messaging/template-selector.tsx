@@ -12,13 +12,13 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from "@/components/ui/command";
+} from "@/components/ui/command"; // Adjusted import path if needed
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { MessageTemplate } from "@/services/message-service";
+import type { MessageTemplate } from "@/services/message-service"; // Use type import
 
 interface TemplateSelectorProps {
   templates: MessageTemplate[];
@@ -62,8 +62,9 @@ export function TemplateSelector({
             <CommandGroup>
               {templates.map((template) => (
                 <CommandItem
-                  key={template.id}
-                  value={template.name} // Searchable value
+                  // Use _id as key
+                  key={template._id?.toString()}
+                  value={template.name} // Searchable value is name
                   onSelect={() => {
                     onSelect(template);
                     setOpen(false);
@@ -74,7 +75,8 @@ export function TemplateSelector({
                   <Check
                     className={cn(
                       "mr-2 h-4 w-4",
-                      selected?.id === template.id ? "opacity-100" : "opacity-0"
+                       // Compare using _id
+                      selected?._id === template._id ? "opacity-100" : "opacity-0"
                     )}
                   />
                 </CommandItem>
