@@ -1,5 +1,5 @@
 import type {Metadata} from 'next';
-import {Inter} from 'next/font/google'; // Changed from Geist to Inter for a more standard web font
+import {Inter} from 'next/font/google';
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster"; // Import Toaster
 
@@ -17,6 +17,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      {/* The body tag must be the first child of html to avoid hydration errors. */}
       <body className={`${inter.variable} font-sans antialiased`}>
         {children}
         <Toaster />
