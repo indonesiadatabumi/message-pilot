@@ -16,10 +16,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning> {/* Add suppressHydrationWarning for potential theme/extension mismatches */}
-      <body className={`${inter.variable} font-sans antialiased`}> {/* Use Inter */}
+    <html lang="en" suppressHydrationWarning>
+      <body className={`${inter.variable} font-sans antialiased`}>
         {children}
-        <Toaster /> {/* Add Toaster */}
+        <Toaster />
       </body>
     </html>
   );
