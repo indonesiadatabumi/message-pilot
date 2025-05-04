@@ -12,9 +12,13 @@ import { sendSms } from '@/services/sms-service'; // Import the SMS sending serv
 const ScheduleMessageSchema = z.object({
   recipient: z.string().min(1, "Recipient phone number is required."),
   content: z.string().min(1, "Message content cannot be empty.").max(1000, "Message too long."),
-  scheduledTime: z.date().refine(date => date > new Date(), {
-    message: "Scheduled time must be in the future.",
-  }),
+  scheduledTime: z.date().refine(date => {
+        // Compare milliseconds since epoch to avoid timezone issues
+        // Add a small buffer (e.g., 1 second) to prevent race conditions
+        return date.getTime() > (Date.now() - 1000);
+    }, {
+        message: "Scheduled time must be in the future.",
+    }),
 });
 
 // --- Get All Pending Scheduled Messages ---
@@ -43,6 +47,7 @@ export async function scheduleNewMessage(formData: unknown): Promise<ScheduleMes
     const validatedFields = ScheduleMessageSchema.safeParse(formData);
 
     if (!validatedFields.success) {
+        console.error("Schedule Message Validation Failed:", validatedFields.error.flatten());
         return {
         success: false,
         error: "Validation failed. Please check the form fields.",
@@ -122,6 +127,7 @@ export async function updateScheduledMessage(id: string, formData: unknown): Pro
 
     const validatedFields = ScheduleMessageSchema.safeParse(formData); // Reuse schema for validation
      if (!validatedFields.success) {
+        console.error("Update Scheduled Message Validation Failed:", validatedFields.error.flatten());
         return {
         success: false,
         error: "Validation failed. Please check the form fields.",

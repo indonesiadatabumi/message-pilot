@@ -9,57 +9,45 @@ import { sendSms } from '@/services/sms-service'; // Import the SMS sending serv
 
 // --- Schemas for Message Sending Forms ---
 
-// Private Message Schema (matches form)
+// Helper for scheduled time validation
+const scheduledTimeValidation = (data: { scheduleEnabled: boolean, scheduledDateTime?: Date }) => {
+    if (!data.scheduleEnabled) return true; // Not scheduled, validation passes
+    if (!data.scheduledDateTime) return false; // Scheduled but no date/time provided
+    // Compare milliseconds since epoch to avoid timezone issues
+    // Add a small buffer (e.g., 1 second) to prevent race conditions if client/server clocks are slightly off
+    // or if there's a small delay between client submission and server processing.
+    return data.scheduledDateTime.getTime() > (Date.now() - 1000);
+};
+
+// Private Message Schema (matches form, expects combined DateTime)
 const PrivateMessageSchema = z.object({
   recipient: z.custom<Contact>((val) => val instanceof Object && '_id' in val && 'name' in val && 'phone' in val, {
     message: "Please select a recipient.",
   }),
   content: z.string().min(1, { message: "Message content cannot be empty." }).max(1000, {message: "Message too long."}),
   scheduleEnabled: z.boolean().default(false),
-  scheduledDate: z.date().optional(),
-  scheduledTime: z.string().optional(), // HH:MM format
-}).refine(data => !data.scheduleEnabled || (data.scheduledDate && data.scheduledTime && /^\d{2}:\d{2}$/.test(data.scheduledTime)), {
+  scheduledDateTime: z.date().optional(), // Combined Date and Time
+}).refine(data => !data.scheduleEnabled || data.scheduledDateTime, {
     message: "Please select a valid date and time for scheduled messages.",
-    path: ["scheduledTime"],
-}).refine(data => {
-     if (data.scheduleEnabled && data.scheduledDate && data.scheduledTime) {
-        try {
-            const [hours, minutes] = data.scheduledTime.split(':').map(Number);
-            const scheduledDateTime = new Date(data.scheduledDate);
-            scheduledDateTime.setHours(hours, minutes, 0, 0);
-            return scheduledDateTime > new Date();
-        } catch { return false; }
-     }
-     return true;
-}, {
+    path: ["scheduledDateTime"], // Point error to the combined field
+}).refine(scheduledTimeValidation, {
     message: "Scheduled time must be in the future.",
-    path: ["scheduledTime"],
+    path: ["scheduledDateTime"], // Point error to the combined field
 });
 type PrivateMessageFormValues = z.infer<typeof PrivateMessageSchema>;
 
-// Broadcast Message Schema (matches form)
+// Broadcast Message Schema (matches form, expects combined DateTime)
 const BroadcastMessageSchema = z.object({
   recipients: z.array(z.custom<Contact>((val): val is Contact => val instanceof Object && '_id' in val && 'phone' in val)).min(1, { message: "Please select at least one recipient."}),
   content: z.string().min(1, { message: "Message content cannot be empty." }).max(1000, {message: "Message too long."}),
   scheduleEnabled: z.boolean().default(false),
-  scheduledDate: z.date().optional(),
-  scheduledTime: z.string().optional(), // HH:MM format
-}).refine(data => !data.scheduleEnabled || (data.scheduledDate && data.scheduledTime && /^\d{2}:\d{2}$/.test(data.scheduledTime)), {
+  scheduledDateTime: z.date().optional(), // Combined Date and Time
+}).refine(data => !data.scheduleEnabled || data.scheduledDateTime, {
     message: "Please select a valid date and time for scheduled messages.",
-    path: ["scheduledTime"],
-}).refine(data => {
-     if (data.scheduleEnabled && data.scheduledDate && data.scheduledTime) {
-        try {
-            const [hours, minutes] = data.scheduledTime.split(':').map(Number);
-            const scheduledDateTime = new Date(data.scheduledDate);
-            scheduledDateTime.setHours(hours, minutes, 0, 0);
-            return scheduledDateTime > new Date();
-        } catch { return false; }
-     }
-     return true;
-}, {
+    path: ["scheduledDateTime"],
+}).refine(scheduledTimeValidation, {
     message: "Scheduled time must be in the future.",
-    path: ["scheduledTime"],
+    path: ["scheduledDateTime"],
 });
 type BroadcastMessageFormValues = z.infer<typeof BroadcastMessageSchema>;
 
@@ -80,24 +68,13 @@ const createTemplateMessageSchema = (params: string[]) => {
       }),
       parameters: z.object(paramsSchema),
       scheduleEnabled: z.boolean().default(false),
-      scheduledDate: z.date().optional(),
-      scheduledTime: z.string().optional(), // HH:MM format
-    }).refine(data => !data.scheduleEnabled || (data.scheduledDate && data.scheduledTime && /^\d{2}:\d{2}$/.test(data.scheduledTime)), {
+      scheduledDateTime: z.date().optional(), // Combined Date and Time
+    }).refine(data => !data.scheduleEnabled || data.scheduledDateTime, {
         message: "Please select a valid date and time for scheduled messages.",
-        path: ["scheduledTime"],
-    }).refine(data => {
-        if (data.scheduleEnabled && data.scheduledDate && data.scheduledTime) {
-            try {
-                const [hours, minutes] = data.scheduledTime.split(':').map(Number);
-                const scheduledDateTime = new Date(data.scheduledDate);
-                scheduledDateTime.setHours(hours, minutes, 0, 0);
-                return scheduledDateTime > new Date();
-            } catch { return false; }
-        }
-        return true;
-    }, {
+        path: ["scheduledDateTime"],
+    }).refine(scheduledTimeValidation, {
         message: "Scheduled time must be in the future.",
-        path: ["scheduledTime"],
+        path: ["scheduledDateTime"],
     });
 };
 
@@ -105,22 +82,15 @@ const createTemplateMessageSchema = (params: string[]) => {
 type TemplateMessageFormValues = z.infer<ReturnType<typeof createTemplateMessageSchema>>;
 
 
-// --- Combine Date and Time ---
-function combineDateTime(date: Date, time: string): Date {
-    const [hours, minutes] = time.split(':').map(Number);
-    const combined = new Date(date);
-    combined.setHours(hours, minutes, 0, 0);
-    return combined;
-}
-
-
 // --- Send/Schedule Private Message Action ---
 type SendPrivateMessageResult = { success: true; message: string } | { success: false; error: string; fieldErrors?: Record<string, string[]> };
 
+// formData now expected to contain scheduledDateTime instead of scheduledDate/Time
 export async function handleSendPrivateMessage(formData: unknown): Promise<SendPrivateMessageResult> {
     const validatedFields = PrivateMessageSchema.safeParse(formData);
 
     if (!validatedFields.success) {
+        console.error("Private Message Validation Failed:", validatedFields.error.flatten());
         return {
             success: false,
             error: "Validation failed. Please check the form fields.",
@@ -128,15 +98,15 @@ export async function handleSendPrivateMessage(formData: unknown): Promise<SendP
         };
     }
 
-    const { recipient, content, scheduleEnabled, scheduledDate, scheduledTime } = validatedFields.data;
+    const { recipient, content, scheduleEnabled, scheduledDateTime } = validatedFields.data;
 
     try {
-        if (scheduleEnabled && scheduledDate && scheduledTime) {
-            const scheduledDateTime = combineDateTime(scheduledDate, scheduledTime);
+        if (scheduleEnabled && scheduledDateTime) {
+            // Pass the validated Date object directly
             const result = await scheduleNewMessage({
                 recipient: recipient.phone,
                 content: content,
-                scheduledTime: scheduledDateTime,
+                scheduledTime: scheduledDateTime, // Pass the Date object
             });
             if (!result.success) throw new Error(result.error); // Propagate scheduling error
             return { success: true, message: `Message to ${recipient.name} scheduled successfully.` };
@@ -161,10 +131,12 @@ export async function handleSendPrivateMessage(formData: unknown): Promise<SendP
 // --- Send/Schedule Broadcast Message Action ---
 type SendBroadcastMessageResult = { success: true; message: string } | { success: false; error: string; fieldErrors?: Record<string, string[]> };
 
+// formData now expected to contain scheduledDateTime instead of scheduledDate/Time
 export async function handleSendBroadcastMessage(formData: unknown): Promise<SendBroadcastMessageResult> {
     const validatedFields = BroadcastMessageSchema.safeParse(formData);
 
     if (!validatedFields.success) {
+        console.error("Broadcast Message Validation Failed:", validatedFields.error.flatten());
         return {
             success: false,
             error: "Validation failed. Please check the form fields.",
@@ -172,18 +144,17 @@ export async function handleSendBroadcastMessage(formData: unknown): Promise<Sen
         };
     }
 
-     const { recipients, content, scheduleEnabled, scheduledDate, scheduledTime } = validatedFields.data;
+     const { recipients, content, scheduleEnabled, scheduledDateTime } = validatedFields.data;
      const recipientPhones = recipients.map(r => r.phone);
 
     try {
-        if (scheduleEnabled && scheduledDate && scheduledTime) {
-            const scheduledDateTime = combineDateTime(scheduledDate, scheduledTime);
+        if (scheduleEnabled && scheduledDateTime) {
             // Schedule one message per recipient in the database
             const schedulePromises = recipientPhones.map(phone =>
                  scheduleNewMessage({
                      recipient: phone,
                      content: content,
-                     scheduledTime: scheduledDateTime,
+                     scheduledTime: scheduledDateTime, // Pass the Date object
                  })
              );
             const results = await Promise.all(schedulePromises);
@@ -221,6 +192,7 @@ export async function handleSendBroadcastMessage(formData: unknown): Promise<Sen
 // --- Send/Schedule Template Message Action ---
 type SendTemplateMessageResult = { success: true; message: string } | { success: false; error: string; fieldErrors?: Record<string, any> }; // fieldErrors might be nested
 
+// formData now expected to contain scheduledDateTime instead of scheduledDate/Time
 export async function handleSendTemplateMessage(
     formData: unknown, // Raw form data
     templateParamsList: string[] // List of parameter names for the selected template
@@ -230,7 +202,7 @@ export async function handleSendTemplateMessage(
     const validatedFields = TemplateMessageSchema.safeParse(formData);
 
     if (!validatedFields.success) {
-        console.log("Template validation failed:", validatedFields.error.flatten());
+        console.error("Template Message Validation failed:", validatedFields.error.flatten());
         return {
             success: false,
             error: "Validation failed. Please check the template parameters and other fields.",
@@ -238,7 +210,7 @@ export async function handleSendTemplateMessage(
         };
     }
 
-    const { recipient, template, parameters, scheduleEnabled, scheduledDate, scheduledTime } = validatedFields.data;
+    const { recipient, template, parameters, scheduleEnabled, scheduledDateTime } = validatedFields.data;
 
     // Render the template content with parameters
     let filledContent = template.content;
@@ -260,12 +232,11 @@ export async function handleSendTemplateMessage(
 
 
     try {
-        if (scheduleEnabled && scheduledDate && scheduledTime) {
-            const scheduledDateTime = combineDateTime(scheduledDate, scheduledTime);
+        if (scheduleEnabled && scheduledDateTime) {
              const result = await scheduleNewMessage({
                 recipient: recipient.phone,
                 content: filledContent, // Schedule the rendered content
-                scheduledTime: scheduledDateTime,
+                scheduledTime: scheduledDateTime, // Pass the Date object
             });
             if (!result.success) throw new Error(result.error);
             return { success: true, message: `Template message to ${recipient.name} scheduled successfully.` };

@@ -28,29 +28,25 @@ import { ContactSelector } from "./contact-selector";
 import type { Contact } from "@/services/message-service"; // Use type import
 import { handleSendBroadcastMessage } from "@/actions/message-actions"; // Import the server action
 
-// Schema should align with the action's expected input structure
+// Helper for scheduled time validation
+const scheduledTimeValidation = (data: { scheduleEnabled: boolean, scheduledDateTime?: Date }) => {
+    if (!data.scheduleEnabled) return true;
+    if (!data.scheduledDateTime) return false;
+    return data.scheduledDateTime.getTime() > (Date.now() - 1000);
+};
+
+// Schema now uses scheduledDateTime directly
 const formSchema = z.object({
-  recipients: z.array(z.custom<Contact>((val): val is Contact => val instanceof Object && '_id' in val && 'phone' in val)).min(1, { message: "Please select at least one recipient."}), // Validate Contact shape
+  recipients: z.array(z.custom<Contact>((val): val is Contact => val instanceof Object && '_id' in val && 'phone' in val)).min(1, { message: "Please select at least one recipient."}),
   content: z.string().min(1, { message: "Message content cannot be empty." }).max(1000, {message: "Message too long."}),
   scheduleEnabled: z.boolean().default(false),
-  scheduledDate: z.date().optional(),
-  scheduledTime: z.string().optional(), // HH:MM format
-}).refine(data => !data.scheduleEnabled || (data.scheduledDate && data.scheduledTime && /^\d{2}:\d{2}$/.test(data.scheduledTime)), {
+  scheduledDateTime: z.date().optional(), // Combined Date and Time object
+}).refine(data => !data.scheduleEnabled || data.scheduledDateTime, {
     message: "Please select a valid date and time for scheduled messages.",
-    path: ["scheduledTime"],
-}).refine(data => {
-     if (data.scheduleEnabled && data.scheduledDate && data.scheduledTime) {
-        try {
-            const [hours, minutes] = data.scheduledTime.split(':').map(Number);
-            const scheduledDateTime = new Date(data.scheduledDate);
-            scheduledDateTime.setHours(hours, minutes, 0, 0);
-            return scheduledDateTime > new Date();
-        } catch { return false; }
-     }
-     return true;
-}, {
+    path: ["scheduledDateTime"],
+}).refine(scheduledTimeValidation, {
     message: "Scheduled time must be in the future.",
-    path: ["scheduledTime"],
+    path: ["scheduledDateTime"],
 });
 
 
@@ -62,6 +58,9 @@ interface SendBroadcastMessageFormProps {
 
 export function SendBroadcastMessageForm({ contacts }: SendBroadcastMessageFormProps) {
   const [isLoading, setIsLoading] = React.useState(false);
+  // Local state for date and time inputs
+  const [selectedDate, setSelectedDate] = React.useState<Date | undefined>(undefined);
+  const [selectedTime, setSelectedTime] = React.useState<string>(""); // HH:MM
 
   const form = useForm<BroadcastMessageFormValues>({
     resolver: zodResolver(formSchema),
@@ -69,15 +68,47 @@ export function SendBroadcastMessageForm({ contacts }: SendBroadcastMessageFormP
       recipients: [],
       content: "",
       scheduleEnabled: false,
-      scheduledDate: undefined,
-      scheduledTime: "",
+      scheduledDateTime: undefined,
     },
   });
 
   const scheduleEnabled = form.watch("scheduleEnabled");
 
+   // Effect to combine date and time into scheduledDateTime
+   React.useEffect(() => {
+     if (scheduleEnabled && selectedDate && selectedTime) {
+       try {
+         const [hours, minutes] = selectedTime.split(':').map(Number);
+         const combinedDateTime = new Date(selectedDate);
+         combinedDateTime.setHours(hours, minutes, 0, 0);
+          if (form.getValues("scheduledDateTime")?.getTime() !== combinedDateTime.getTime()) {
+             form.setValue("scheduledDateTime", combinedDateTime, { shouldValidate: true });
+          }
+       } catch (e) {
+         console.error("Error combining date/time:", e);
+          if (form.getValues("scheduledDateTime") !== undefined) {
+             form.setValue("scheduledDateTime", undefined, { shouldValidate: true });
+          }
+       }
+     } else if (!scheduleEnabled) {
+        if (form.getValues("scheduledDateTime") !== undefined) {
+             form.setValue("scheduledDateTime", undefined, { shouldValidate: true });
+        }
+     }
+   }, [selectedDate, selectedTime, scheduleEnabled, form]);
+
+    // Effect to clear local date/time state
+   React.useEffect(() => {
+     if (!scheduleEnabled) {
+       setSelectedDate(undefined);
+       setSelectedTime("");
+     }
+   }, [scheduleEnabled]);
+
+
   const onSubmit = async (values: BroadcastMessageFormValues) => {
     setIsLoading(true);
+    console.log("Submitting broadcast values:", values);
 
     try {
        // Call the server action
@@ -89,17 +120,22 @@ export function SendBroadcastMessageForm({ contacts }: SendBroadcastMessageFormP
              description: result.message, // Use message from action result
            });
            form.reset(); // Reset form on success
+           setSelectedDate(undefined);
+           setSelectedTime("");
        } else {
             // Handle validation or server errors from the action
             if (result.fieldErrors) {
                  Object.entries(result.fieldErrors).forEach(([field, messages]) => {
-                     // Note: fieldErrors might be for nested fields like 'recipients.0.name' if schema was more complex.
-                     // For a simple array, it might just be 'recipients'. Adjust as needed.
                     if (messages && messages.length > 0) {
-                        form.setError(field as keyof BroadcastMessageFormValues, { // Adjust field type if necessary
-                            type: 'server',
-                            message: messages[0],
-                        });
+                        if (field === 'scheduledDateTime') {
+                            form.setError('scheduledDateTime', { type: 'server', message: messages[0] });
+                         } else {
+                             // Handle other potential field errors (like 'recipients' or 'content')
+                            form.setError(field as keyof BroadcastMessageFormValues, {
+                                type: 'server',
+                                message: messages[0],
+                            });
+                         }
                     }
                  });
                  toast({
@@ -191,69 +227,56 @@ export function SendBroadcastMessageForm({ contacts }: SendBroadcastMessageFormP
         />
 
         {scheduleEnabled && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 border rounded-md">
-            <FormField
-              control={form.control}
-              name="scheduledDate"
-              render={({ field }) => (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 border rounded-md relative">
+                {/* Date Input */}
                 <FormItem className="flex flex-col">
-                  <FormLabel>Date</FormLabel>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <FormControl>
-                        <Button
-                          variant={"outline"}
-                          className={cn(
-                            "w-full pl-3 text-left font-normal",
-                            !field.value && "text-muted-foreground"
-                          )}
-                          disabled={isLoading}
-                        >
-                          {field.value ? (
-                            format(field.value, "PPP")
-                          ) : (
-                            <span>Pick a date</span>
-                          )}
-                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                        </Button>
-                      </FormControl>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={field.value}
-                        onSelect={field.onChange}
-                        disabled={(date) =>
-                           date < new Date(new Date().setDate(new Date().getDate() - 1))
-                        }
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
-                  <FormMessage />
+                    <FormLabel>Date</FormLabel>
+                    <Popover>
+                        <PopoverTrigger asChild>
+                            <FormControl>
+                                <Button
+                                    variant={"outline"}
+                                    className={cn(
+                                        "w-full pl-3 text-left font-normal",
+                                        !selectedDate && "text-muted-foreground"
+                                    )}
+                                    disabled={isLoading}
+                                >
+                                    {selectedDate ? format(selectedDate, "PPP") : <span>Pick a date</span>}
+                                    <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                </Button>
+                            </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                                mode="single"
+                                selected={selectedDate}
+                                onSelect={setSelectedDate}
+                                disabled={(date) => date < new Date(new Date().setDate(new Date().getDate() - 1))}
+                                initialFocus
+                            />
+                        </PopoverContent>
+                    </Popover>
+                    <FormMessage>{form.formState.errors.scheduledDateTime?.message}</FormMessage>
                 </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="scheduledTime"
-               render={({ field }) => (
-                 <FormItem className="flex flex-col">
-                   <FormLabel>Time (24-hour format)</FormLabel>
+
+                {/* Time Input */}
+                <FormItem className="flex flex-col">
+                    <FormLabel>Time (24-hour format)</FormLabel>
                     <FormControl>
-                       <Input
-                         type="time"
-                         {...field}
-                         className="w-full"
-                         disabled={isLoading}
-                       />
-                     </FormControl>
-                   <FormMessage />
-                 </FormItem>
-               )}
-            />
-          </div>
+                        <Input
+                            type="time"
+                            value={selectedTime}
+                            onChange={(e) => setSelectedTime(e.target.value)}
+                            className="w-full"
+                            disabled={isLoading}
+                        />
+                    </FormControl>
+                    {/* <FormMessage>{form.formState.errors.scheduledDateTime?.message}</FormMessage> */}
+                </FormItem>
+            </div>
         )}
+
 
         <Button type="submit" className="w-full bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isLoading}>
           {isLoading ? (scheduleEnabled ? 'Scheduling...' : 'Sending...') : (scheduleEnabled ? 'Schedule Broadcast' : 'Send Broadcast')}
