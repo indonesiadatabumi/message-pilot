@@ -64,6 +64,7 @@ export async function addContact(formData: unknown): Promise<AddContactResult> {
     }
 
     revalidatePath('/dashboard/contacts'); // Revalidate the contacts page cache
+    revalidatePath('/dashboard/send'); // Revalidate the send page cache
     return {
       success: true,
       contact: {
@@ -122,6 +123,7 @@ export async function updateContact(id: string, formData: unknown): Promise<Upda
     }
 
     revalidatePath('/dashboard/contacts');
+    revalidatePath('/dashboard/send'); // Revalidate the send page cache
     return {
       success: true,
       contact: { // Ensure the returned contact has _id as string
@@ -154,6 +156,7 @@ export async function deleteContact(id: string): Promise<DeleteContactResult> {
     }
 
     revalidatePath('/dashboard/contacts');
+    revalidatePath('/dashboard/send'); // Revalidate the send page cache
     return { success: true };
   } catch (error: any) {
     console.error("Error deleting contact:", error);
@@ -244,6 +247,7 @@ export async function importContacts(importedData: ImportedContact[]): Promise<I
 
     if (added > 0) {
       revalidatePath('/dashboard/contacts');
+      revalidatePath('/dashboard/send'); // Revalidate the send page cache
     }
 
     // Determine overall success: true only if NO errors (validation or duplicates reported as errors) occurred.
