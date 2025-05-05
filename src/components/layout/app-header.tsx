@@ -1,3 +1,4 @@
+
 "use client";
 
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -10,15 +11,28 @@ export function AppHeader() {
   const router = useRouter();
 
   const handleLogout = () => {
-     // Remove token from local storage
-     if (typeof window !== 'undefined') {
-       localStorage.removeItem('authToken');
-     }
+    // Remove token and admin status from local storage and cookies
+    if (typeof window !== 'undefined') {
+      console.log("[AppHeader] Initiating logout...");
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('isAdmin');
+      console.log("[AppHeader] localStorage cleared.");
+
+      // Clear cookies by setting expiry date to the past
+      const cookieOptions = `path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
+      document.cookie = `authToken=; ${cookieOptions}`;
+      document.cookie = `isAdmin=; ${cookieOptions}`;
+      console.log("[AppHeader] Cookies cleared. Current document.cookie:", document.cookie);
+    } else {
+      console.warn("[AppHeader] Cannot clear auth state: window is undefined.");
+    }
     toast({
       title: "Logged Out",
       description: "You have been successfully logged out.",
     });
+    console.log("[AppHeader] Redirecting to /login...");
     router.push('/login'); // Redirect to login page
+    console.log("[AppHeader] router.push('/login') called.");
   };
 
   return (
@@ -35,3 +49,4 @@ export function AppHeader() {
     </header>
   );
 }
+

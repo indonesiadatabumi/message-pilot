@@ -1,4 +1,3 @@
-
 /**
  * Extracts parameters (e.g., {{name}}) from template content.
  * @param content - The template string.

@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from 'next/link';
@@ -28,23 +29,36 @@ export function AppSidebar() {
   const router = useRouter();
 
   const handleLogout = () => {
-    // Remove token from local storage
+    // Remove token and admin status from local storage and cookies
     if (typeof window !== 'undefined') {
+      console.log("[AppSidebar] Initiating logout...");
       localStorage.removeItem('authToken');
+      localStorage.removeItem('isAdmin');
+      console.log("[AppSidebar] localStorage cleared.");
+
+      // Clear cookies by setting expiry date to the past
+      const cookieOptions = `path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
+      document.cookie = `authToken=; ${cookieOptions}`;
+      document.cookie = `isAdmin=; ${cookieOptions}`;
+      console.log("[AppSidebar] Cookies cleared. Current document.cookie:", document.cookie);
+    } else {
+      console.warn("[AppSidebar] Cannot clear auth state: window is undefined.");
     }
     toast({
       title: "Logged Out",
       description: "You have been successfully logged out.",
     });
+    console.log("[AppSidebar] Redirecting to /login...");
     router.push('/login'); // Redirect to login page
+    console.log("[AppSidebar] router.push('/login') called.");
   };
 
   return (
     <>
       <SidebarHeader className="hidden md:flex items-center gap-2"> {/* Hidden on mobile */}
-         {/* Optional: Add Logo/Brand here */}
-         <MessageSquareText className="h-6 w-6 text-accent" />
-         <h1 className="text-xl font-semibold text-primary">MessagePilot</h1>
+        {/* Optional: Add Logo/Brand here */}
+        <MessageSquareText className="h-6 w-6 text-accent" />
+        <h1 className="text-xl font-semibold text-primary">MessagePilot</h1>
       </SidebarHeader>
       <SidebarContent className="p-2">
         <SidebarMenu>
@@ -75,3 +89,4 @@ export function AppSidebar() {
     </>
   );
 }
+
