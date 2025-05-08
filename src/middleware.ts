@@ -1,65 +1,75 @@
+
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 // This function can be marked `async` if using `await` inside
 export function middleware(request: NextRequest) {
-    // Try reading token and admin status from cookies first, then fallback to headers/storage simulation
-    const token = request.cookies.get('authToken')?.value || request.headers.get('Authorization')?.split(' ')[1];
-    // For simulation, we might need to rely on client-side checks post-login or pass flags differently.
-    // Middleware runs server-side and doesn't have direct access to localStorage.
-    // Let's assume the login process sets a specific cookie or a claim in a real JWT for admin status.
-    // For this simulation, we'll rely on the redirect logic within the login form itself
-    // and protect the /admin routes here, assuming only admins should get there.
+    // Read token and admin status from cookies set during login
+    const token = request.cookies.get('authToken')?.value;
+    const isAdminCookie = request.cookies.get('isAdmin')?.value;
+    const isAdmin = isAdminCookie === 'true'; // Convert cookie value to boolean
 
     const { pathname } = request.nextUrl;
+    console.log(`[Middleware] Path: ${pathname}, Token: ${token ? 'Present' : 'Absent'}, IsAdminCookie: ${isAdminCookie}, IsAdmin: ${isAdmin}`);
 
     // Define public routes that don't require authentication
     const publicRoutes = ['/login']; // Add any other public routes like /register, /forgot-password, etc.
 
     // Define admin routes
-    const adminRoutes = ['/admin', '/admin/dashboard', '/admin/users'];
+    const adminRoutes = ['/admin', '/admin/dashboard', '/admin/users']; // Ensure '/admin' itself is included if it's a valid route
 
     // Check if the current path is a public route
     const isPublicRoute = publicRoutes.some(route => pathname === route);
     const isAdminRoute = adminRoutes.some(route => pathname.startsWith(route));
 
-    // If accessing a public route, allow access regardless of token status
+    // === Handling Public Routes (like /login) ===
     if (isPublicRoute) {
-        // If logged in (has token) and trying to access login, redirect to dashboard (or admin dashboard if applicable)
+        // If logged in (has token) and trying to access a public route like /login:
         if (token) {
-            // In a real app, decode JWT here to check role
-            // For simulation, we can't easily know the role here without more complex state/cookie management.
-            // Let's redirect all logged-in users trying to access /login to the general dashboard.
-            // The login form itself will handle the initial redirect to /admin if the user is admin.
-            return NextResponse.redirect(new URL('/dashboard', request.url));
+            // Redirect logged-in users away from login page based on their role
+            const redirectUrl = isAdmin ? '/admin/dashboard' : '/dashboard';
+            console.log(`[Middleware] User is logged in (isAdmin=${isAdmin}) and accessing public route ${pathname}. Redirecting to ${redirectUrl}.`);
+            return NextResponse.redirect(new URL(redirectUrl, request.url));
         }
-        // Otherwise, allow access to the public route
+        // Otherwise (not logged in), allow access to the public route
+        console.log(`[Middleware] User is not logged in. Allowing access to public route ${pathname}.`);
         return NextResponse.next();
     }
 
-    // If accessing a non-public route and there's no token, redirect to login
+    // === Handling Non-Public Routes ===
+
+    // If accessing a non-public route and there's NO token, redirect to login
     if (!token) {
+        console.log(`[Middleware] No token found for accessing protected route ${pathname}. Redirecting to login.`);
         const loginUrl = new URL('/login', request.url);
         loginUrl.searchParams.set('redirectedFrom', pathname); // Optional: pass original path
         return NextResponse.redirect(loginUrl);
     }
 
-    // --- Admin Route Protection (Simulation) ---
-    // If accessing an admin route, we need to verify if the user is an admin.
-    // Since middleware can't easily access localStorage set by the client,
-    // a real implementation would rely on:
-    // 1. A specific cookie set during admin login.
-    // 2. A role claim within the JWT token.
-    // For simulation, we'll redirect away from /admin if a hypothetical 'isAdmin' cookie isn't set.
-    const isAdmin = request.cookies.get('isAdmin')?.value === 'true';
+    // --- At this point, the user has a token and is accessing a protected route ---
 
+    // Protect Admin Routes: Redirect non-admins trying to access admin routes
     if (isAdminRoute && !isAdmin) {
-        console.log('Middleware: Non-admin user attempting to access admin route. Redirecting to /dashboard.');
-        // Redirect non-admins trying to access admin routes to the main dashboard
+        console.log(`[Middleware] Non-admin user (isAdmin=${isAdmin}) attempting to access ADMIN route ${pathname}. Redirecting to /dashboard.`);
         return NextResponse.redirect(new URL('/dashboard', request.url));
     }
 
-    // If token exists and accessing a non-public, non-admin route (or is admin accessing admin route), allow
+    // Redirect Admins from Regular User Dashboard: If an admin lands on /dashboard, send them to /admin/dashboard
+    if (pathname === '/dashboard' && isAdmin) {
+        console.log(`[Middleware] ADMIN user (isAdmin=${isAdmin}) accessing USER dashboard ${pathname}. Redirecting to /admin/dashboard.`);
+        return NextResponse.redirect(new URL('/admin/dashboard', request.url));
+    }
+
+    // Redirect Regular Users from Admin Routes (redundant with isAdminRoute check, but safe)
+    // This case might be hit if an admin somehow gets demoted while having an admin URL open
+    if (isAdminRoute && !isAdmin) {
+        console.log(`[Middleware] Double-check: Non-admin user somehow past initial check for admin route ${pathname}. Redirecting to /dashboard.`);
+        return NextResponse.redirect(new URL('/dashboard', request.url));
+    }
+
+
+    // If none of the above conditions caused a redirect, allow access
+    console.log(`[Middleware] Allowing access for user (isAdmin=${isAdmin}) to protected route ${pathname}.`);
     return NextResponse.next();
 }
 

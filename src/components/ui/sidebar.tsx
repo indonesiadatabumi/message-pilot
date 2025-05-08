@@ -1,3 +1,4 @@
+
 "use client"
 
 import * as React from "react"
@@ -10,7 +11,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
-import { Sheet, SheetContent } from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet" // Added SheetHeader, SheetTitle
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Tooltip,
@@ -85,7 +86,9 @@ const SidebarProvider = React.forwardRef<
         }
 
         // This sets the cookie to keep the sidebar state.
-        document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
+        if (typeof document !== 'undefined') {
+          document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
+        }
       },
       [setOpenProp, open]
     )
@@ -93,9 +96,9 @@ const SidebarProvider = React.forwardRef<
     // Helper to toggle the sidebar.
     const toggleSidebar = React.useCallback(() => {
       if (isMobile) {
-          setOpenMobile((currentOpen) => !currentOpen);
+        setOpenMobile((currentOpen) => !currentOpen);
       } else {
-          setOpen((currentOpen) => !currentOpen);
+        setOpen((currentOpen) => !currentOpen);
       }
     }, [isMobile, setOpen, setOpenMobile])
 
@@ -144,23 +147,23 @@ const SidebarProvider = React.forwardRef<
 
     // Don't render TooltipProvider server-side to avoid hydration issues with Tooltip internals if they use client-side APIs implicitly
     const content = (
-       <div
-            style={
-              {
-                "--sidebar-width": SIDEBAR_WIDTH,
-                "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
-                ...style,
-              } as React.CSSProperties
-            }
-            className={cn(
-              "group/sidebar-wrapper flex min-h-svh w-full has-[[data-variant=inset]]:bg-sidebar",
-              className
-            )}
-            ref={ref}
-            {...props}
-          >
-            {children}
-        </div>
+      <div
+        style={
+          {
+            "--sidebar-width": SIDEBAR_WIDTH,
+            "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
+            ...style,
+          } as React.CSSProperties
+        }
+        className={cn(
+          "group/sidebar-wrapper flex min-h-svh w-full has-[[data-variant=inset]]:bg-sidebar",
+          className
+        )}
+        ref={ref}
+        {...props}
+      >
+        {children}
+      </div>
     );
 
     return (
@@ -200,8 +203,8 @@ const Sidebar = React.forwardRef<
 
     // Render nothing or a placeholder until mounted on the client
     if (!isMounted || isMobile === undefined) {
-        // Optionally return a placeholder/skeleton here instead of null
-        return null;
+      // Optionally return a placeholder/skeleton here instead of null
+      return null;
     }
 
 
@@ -226,7 +229,7 @@ const Sidebar = React.forwardRef<
           <SheetContent
             data-sidebar="sidebar"
             data-mobile="true"
-            className="w-[--sidebar-width] bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
+            className="flex flex-col w-[--sidebar-width] bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden" // Use flex-col for SheetContent
             style={
               {
                 "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
@@ -234,7 +237,12 @@ const Sidebar = React.forwardRef<
             }
             side={side}
           >
-            <div className="flex h-full w-full flex-col">{children}</div>
+            <SheetHeader className="p-4 border-b shrink-0">
+              <SheetTitle>Menu</SheetTitle>
+            </SheetHeader>
+            <div className="flex-1 flex flex-col overflow-y-auto"> {/* Container for scrollable children */}
+              {children}
+            </div>
           </SheetContent>
         </Sheet>
       )
@@ -294,10 +302,10 @@ const SidebarTrigger = React.forwardRef<
 >(({ className, onClick, ...props }, ref) => {
   const { toggleSidebar, isMobile } = useSidebar()
 
-   // Render nothing or a disabled button until isMobile is determined
-   if (isMobile === undefined) {
-     return <Button ref={ref} variant="ghost" size="icon" className={cn("h-7 w-7", className)} disabled {...props}><PanelLeft /></Button>;
-   }
+  // Render nothing or a disabled button until isMobile is determined
+  if (isMobile === undefined) {
+    return <Button ref={ref} variant="ghost" size="icon" className={cn("h-7 w-7", className)} disabled {...props}><PanelLeft /></Button>;
+  }
 
   return (
     <Button
@@ -650,7 +658,7 @@ const SidebarMenuAction = React.forwardRef<
         "peer-data-[size=lg]/menu-button:top-2.5",
         "group-data-[collapsible=icon]:hidden",
         showOnHover &&
-          "group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100 data-[state=open]:opacity-100 peer-data-[active=true]/menu-button:text-sidebar-accent-foreground md:opacity-0",
+        "group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100 data-[state=open]:opacity-100 peer-data-[active=true]/menu-button:text-sidebar-accent-foreground md:opacity-0",
         className
       )}
       {...props}

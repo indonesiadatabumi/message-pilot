@@ -5,25 +5,31 @@ import { revalidatePath } from 'next/cache';
 import { getDb } from '@/lib/mongodb';
 import { Db, ObjectId } from 'mongodb'; // Import Db type
 import { z } from 'zod';
-import type { ScheduledMessage } from '@/services/message-service';
+import type { ScheduledMessage, MessageSystemType, MessageHistoryInput } from '@/services/message-service';
 import { sendSms } from '@/services/sms-service'; // Import the SMS sending service
+import { logMessageToHistory } from './history-actions'; // Import history logging
 
 const SCHEDULE_BUFFER_MS = 5000; // 5 seconds buffer
 
-// Schema for scheduling a message (can be simplified if needed, or match form exactly)
+// Updated schema to include new fields for richer history logging
 const ScheduleMessageSchema = z.object({
     recipient: z.string().min(1, "Recipient phone number is required."),
     content: z.string().min(1, "Message content cannot be empty.").max(1000, "Message too long."),
     scheduledTime: z.date().refine(date => {
         const now = Date.now();
         const scheduledTime = date.getTime();
-        console.log(`[Validation - Schedule] Now: ${now}, Scheduled: ${scheduledTime}, Diff: ${scheduledTime - now}`);
-        // Compare milliseconds since epoch to avoid timezone issues
-        // Add a buffer to prevent race conditions
         return scheduledTime > (now - SCHEDULE_BUFFER_MS);
     }, {
         message: "Scheduled time must be in the future.",
     }),
+    // New fields
+    messageType: z.custom<MessageSystemType>((val) => ['private', 'broadcast', 'template'].includes(val as string), {
+        message: "Invalid message type for scheduling.",
+    }),
+    templateId: z.string().optional(),
+    templateName: z.string().optional(),
+    parameters: z.record(z.string()).optional(), // Assuming parameters are string key-value pairs
+    userId: z.string().optional(),
 });
 
 // --- Get All Pending Scheduled Messages ---
@@ -31,17 +37,16 @@ export async function getPendingScheduledMessages(): Promise<ScheduledMessage[]>
     try {
         const db = await getDb();
         const messages = await db.collection<ScheduledMessage>('scheduled_messages')
-            .find({ status: 'pending' }) // Only fetch pending messages
-            .sort({ scheduledTime: 1 }) // Sort by soonest first
+            .find({ status: 'pending' })
+            .sort({ scheduledTime: 1 })
             .toArray();
-        // Convert ObjectId to string for serialization
         return messages.map(msg => ({
             ...msg,
             _id: msg._id?.toString(),
         }));
     } catch (error) {
         console.error("Error fetching scheduled messages:", error);
-        return []; // Return empty array on error
+        return [];
     }
 }
 
@@ -56,18 +61,23 @@ export async function scheduleNewMessage(formData: unknown): Promise<ScheduleMes
         console.error("[Action Error] Schedule Message Validation Failed:", validatedFields.error.flatten());
         return {
             success: false,
-            error: "Validation failed. Please check the form fields.",
+            error: "Validation failed. Please check the form fields for scheduling.",
             fieldErrors: validatedFields.error.flatten().fieldErrors,
         };
     }
 
-    const { recipient, content, scheduledTime } = validatedFields.data;
-    console.log("[Action] Schedule Message Validated Data:", { recipient, content, scheduledTime: scheduledTime.toISOString() });
+    const { recipient, content, scheduledTime, messageType, templateId, templateName, parameters, userId } = validatedFields.data;
+    console.log("[Action] Schedule Message Validated Data:", { recipient, content, scheduledTime: scheduledTime.toISOString(), messageType });
 
-    const newMessage: Omit<ScheduledMessage, '_id' | 'createdAt' | 'status'> & { status: 'pending'; createdAt: Date } = {
+    const newMessageData: Omit<ScheduledMessage, '_id' | 'createdAt' | 'status'> & { status: 'pending'; createdAt: Date } = {
         recipient,
         content,
         scheduledTime,
+        messageType,
+        templateId,
+        templateName,
+        parameters,
+        userId,
         status: 'pending',
         createdAt: new Date(),
     };
@@ -75,19 +85,38 @@ export async function scheduleNewMessage(formData: unknown): Promise<ScheduleMes
     try {
         const db = await getDb();
         console.log(`[Action] Inserting scheduled message for ${recipient} at ${scheduledTime.toISOString()} into DB.`);
-        const result = await db.collection<Omit<ScheduledMessage, '_id'>>('scheduled_messages').insertOne(newMessage);
+        const result = await db.collection<Omit<ScheduledMessage, '_id'>>('scheduled_messages').insertOne(newMessageData);
 
         if (!result.insertedId) {
             throw new Error('Failed to insert scheduled message into database.');
         }
+        const scheduledMessageId = result.insertedId.toString();
 
-        console.log(`[Action] Successfully scheduled message ID ${result.insertedId.toString()}. Revalidating path.`);
-        revalidatePath('/dashboard/scheduled'); // Revalidate the scheduled messages page cache
+        // Log 'pending_schedule' to history
+        const historyEntry: MessageHistoryInput = {
+            recipientPhone: recipient,
+            content: content,
+            status: 'pending_schedule',
+            type: messageType,
+            templateId: templateId,
+            templateName: templateName,
+            parameters: parameters,
+            userId: userId,
+            scheduledAt: scheduledTime,
+            processedAt: new Date(), // Time of scheduling
+            // apiMessageId, apiResponse, errorMessage are not applicable here
+        };
+        await logMessageToHistory(historyEntry);
+
+
+        console.log(`[Action] Successfully scheduled message ID ${scheduledMessageId}. Revalidating path.`);
+        revalidatePath('/dashboard/scheduled');
+        revalidatePath('/dashboard/reports'); // Revalidate reports page
         return {
             success: true,
             message: {
-                ...newMessage,
-                _id: result.insertedId.toString(),
+                ...newMessageData,
+                _id: scheduledMessageId,
             },
         };
     } catch (error: any) {
@@ -110,18 +139,42 @@ export async function cancelScheduledMessage(id: string): Promise<CancelSchedule
     try {
         const db = await getDb();
         console.log(`[Action] Attempting to update message ID ${id} status to 'canceled'.`);
-        const result = await db.collection<ScheduledMessage>('scheduled_messages').findOneAndUpdate(
-            { _id: objectId, status: 'pending' }, // Can only cancel pending messages
-            { $set: { status: 'canceled' } }
-        );
+        // Fetch the message before updating to get its details for history logging
+        const messageToCancel = await db.collection<ScheduledMessage>('scheduled_messages').findOne({ _id: objectId, status: 'pending' });
 
-        if (!result) {
-            console.warn(`[Action Warn] Scheduled message ID ${id} not found or not pending.`);
+        if (!messageToCancel) {
+            console.warn(`[Action Warn] Scheduled message ID ${id} not found or not pending for cancellation.`);
             return { success: false, error: "Scheduled message not found, already sent, or already canceled." };
         }
 
+        const result = await db.collection<ScheduledMessage>('scheduled_messages').findOneAndUpdate(
+            { _id: objectId, status: 'pending' },
+            { $set: { status: 'canceled' } }
+        );
+
+        if (!result) { // Should not happen if findOne above succeeded, but good check
+            console.warn(`[Action Warn] Failed to update scheduled message ID ${id} to 'canceled'.`);
+            return { success: false, error: "Failed to cancel scheduled message." };
+        }
+
+        // Log 'canceled' to history
+        const historyEntry: MessageHistoryInput = {
+            recipientPhone: messageToCancel.recipient,
+            content: messageToCancel.content,
+            status: 'canceled',
+            type: messageToCancel.messageType,
+            templateId: messageToCancel.templateId,
+            templateName: messageToCancel.templateName,
+            parameters: messageToCancel.parameters,
+            userId: messageToCancel.userId,
+            scheduledAt: messageToCancel.scheduledTime,
+            processedAt: new Date(), // Time of cancellation
+        };
+        await logMessageToHistory(historyEntry);
+
         console.log(`[Action] Successfully canceled message ID ${id}. Revalidating path.`);
         revalidatePath('/dashboard/scheduled');
+        revalidatePath('/dashboard/reports');
         return { success: true };
     } catch (error: any) {
         console.error("[Action Error] Error canceling scheduled message:", error);
@@ -129,68 +182,69 @@ export async function cancelScheduledMessage(id: string): Promise<CancelSchedule
     }
 }
 
-// --- Update a Scheduled Message (Example - might need more complex logic) ---
-// This is a basic update, typically you might only allow updating time/content before sending.
+// --- Update a Scheduled Message ---
 type UpdateScheduledResult = { success: true; message: ScheduledMessage } | { success: false; error: string; fieldErrors?: Record<string, string[]> };
 
 export async function updateScheduledMessage(id: string, formData: unknown): Promise<UpdateScheduledResult> {
     console.log(`[Action] updateScheduledMessage called for ID: ${id} with data:`, formData);
     if (!ObjectId.isValid(id)) {
-        console.error("[Action Error] Invalid message ID format:", id);
         return { success: false, error: "Invalid message ID format." };
     }
     const objectId = new ObjectId(id);
 
-    const validatedFields = ScheduleMessageSchema.safeParse(formData); // Reuse schema for validation
+    // Use a modified schema for update if needed, or reuse ScheduleMessageSchema if appropriate
+    // For simplicity, reusing ScheduleMessageSchema, assuming all fields can be updated.
+    const validatedFields = ScheduleMessageSchema.safeParse(formData);
     if (!validatedFields.success) {
-        console.error("[Action Error] Update Scheduled Message Validation Failed:", validatedFields.error.flatten());
         return {
             success: false,
-            error: "Validation failed. Please check the form fields.",
+            error: "Validation failed. Please check the form fields for updating schedule.",
             fieldErrors: validatedFields.error.flatten().fieldErrors,
         };
     }
-    const { recipient, content, scheduledTime } = validatedFields.data;
-    console.log("[Action] Update Scheduled Validated Data:", { recipient, content, scheduledTime: scheduledTime.toISOString() });
-
+    const { recipient, content, scheduledTime, messageType, templateId, templateName, parameters, userId } = validatedFields.data;
 
     try {
         const db = await getDb();
-        // Find the message first to ensure it's still pending
-        console.log(`[Action] Checking status for message ID ${id} before update.`);
         const existingMessage = await db.collection<ScheduledMessage>('scheduled_messages').findOne({ _id: objectId });
 
         if (!existingMessage) {
-            console.warn(`[Action Warn] Scheduled message ID ${id} not found for update.`);
             return { success: false, error: "Scheduled message not found." };
         }
         if (existingMessage.status !== 'pending') {
-            console.warn(`[Action Warn] Cannot update message ID ${id} with status "${existingMessage.status}".`);
             return { success: false, error: `Cannot update message with status "${existingMessage.status}".` };
         }
 
+        const updateData: Partial<ScheduledMessage> = {
+            recipient,
+            content,
+            scheduledTime,
+            messageType,
+            templateId,
+            templateName,
+            parameters,
+            userId,
+            // status remains 'pending'
+        };
 
-        console.log(`[Action] Attempting to update message ID ${id}.`);
         const result = await db.collection<ScheduledMessage>('scheduled_messages').findOneAndUpdate(
-            { _id: objectId, status: 'pending' }, // Ensure status is still pending during update
-            { $set: { recipient, content, scheduledTime } },
+            { _id: objectId, status: 'pending' },
+            { $set: updateData },
             { returnDocument: 'after' }
         );
 
         if (!result) {
-            // This might happen in a race condition if status changed between findOne and findOneAndUpdate
-            console.warn(`[Action Warn] Failed to update message ID ${id}. Status might have changed.`);
-            return { success: false, error: "Failed to update message. It might have been sent or canceled just now." };
+            return { success: false, error: "Failed to update message. It might have been sent or canceled." };
         }
 
-        console.log(`[Action] Successfully updated message ID ${id}. Revalidating path.`);
+        // Log update to history? This could be noisy. For now, only terminal states are logged.
+        // If needed, a different type of history log for 'updated_schedule' could be made.
+
         revalidatePath('/dashboard/scheduled');
+        revalidatePath('/dashboard/reports');
         return {
             success: true,
-            message: { // Ensure the returned message has _id as string
-                ...result,
-                _id: result._id.toString(),
-            }
+            message: { ...result, _id: result._id.toString() }
         };
     } catch (error: any) {
         console.error("[Action Error] Error updating scheduled message:", error);
@@ -200,96 +254,104 @@ export async function updateScheduledMessage(id: string, formData: unknown): Pro
 
 
 // --- Process Pending Messages (Background Task Logic) ---
-// This function should be triggered periodically (e.g., cron job, scheduled task).
-// It finds messages ready to be sent, attempts to send them via the SMS API,
-// and updates their status in the database.
-
 export async function processPendingMessages(): Promise<{ processed: number; sent: number; failed: number }> {
     const now = new Date();
     console.log(`[Background Task] processPendingMessages started at ${now.toISOString()}.`);
     let db: Db | null = null;
-    let processed = 0;
-    let sent = 0;
-    let failed = 0;
+    let processedCount = 0;
+    let sentCount = 0;
+    let failedCount = 0;
 
     try {
         db = await getDb();
-        console.log("[Background Task] Fetching pending messages where scheduledTime <= now.");
-        const messagesToSend = await db.collection<ScheduledMessage>('scheduled_messages')
+        const messagesToProcess = await db.collection<ScheduledMessage>('scheduled_messages')
             .find({ status: 'pending', scheduledTime: { $lte: now } })
             .toArray();
 
-        processed = messagesToSend.length;
-        if (processed === 0) {
+        processedCount = messagesToProcess.length;
+        if (processedCount === 0) {
             console.log("[Background Task] No scheduled messages ready to be processed.");
-            return { processed, sent, failed };
+            return { processed: processedCount, sent: sentCount, failed: failedCount };
         }
 
-        console.log(`[Background Task] Found ${processed} messages to process...`);
+        console.log(`[Background Task] Found ${processedCount} messages to process...`);
 
-        for (const message of messagesToSend) {
-            console.log(`[Background Task] Processing message ID ${message._id} for ${message.recipient}.`);
-            // Double-check status in case it changed since the initial query (atomic update later helps too)
-            const currentStatusResult = await db.collection('scheduled_messages').findOne({ _id: message._id }, { projection: { status: 1 } });
-            if (currentStatusResult?.status !== 'pending') {
-                console.log(`[Background Task] Skipping message ID ${message._id} - status changed to ${currentStatusResult?.status}.`);
-                // processed--; // Adjust count only if necessary, depends on desired reporting
-                continue;
-            }
+        for (const scheduledMsg of messagesToProcess) {
+            let finalDbStatus: ScheduledMessage['status'] = 'failed'; // Default to failed for DB update
+            let historyStatus: MessageHistoryInput['status'] = 'failed'; // Default for history log
+            let smsApiMessageId: string | undefined = undefined;
+            let smsApiResponse: string | undefined = undefined;
+            let smsErrorMessage: string | undefined = undefined;
 
-            let finalStatus: ScheduledMessage['status'] = 'failed'; // Default to failed
             try {
-                // --- Send SMS using the service ---
-                console.log(`[Background Task] Attempting to send SMS for message ID ${message._id} to ${message.recipient}`);
-                const smsResult = await sendSms(message.recipient, message.content);
-                // --- ---
+                // Attempt to send SMS
+                const smsResult = await sendSms(scheduledMsg.recipient, scheduledMsg.content);
+                smsApiResponse = smsResult.message; // Capture API response text
 
                 if (smsResult.success) {
-                    finalStatus = 'sent';
-                    sent++;
-                    console.log(`[Background Task] Successfully sent message ID ${message._id}. API response: ${smsResult.message}`);
+                    finalDbStatus = 'sent';
+                    historyStatus = 'sent';
+                    sentCount++;
+                    // smsApiMessageId = smsResult.messageId; // Assuming sendSms might return messageId
+                    console.log(`[Background Task] Successfully sent message ID ${scheduledMsg._id}. API response: ${smsResult.message}`);
                 } else {
-                    // finalStatus remains 'failed'
-                    failed++;
-                    console.error(`[Background Task Error] Failed to send message ID ${message._id}. API Error: ${smsResult.message}`);
+                    // finalDbStatus remains 'failed'
+                    // historyStatus remains 'failed'
+                    failedCount++;
+                    smsErrorMessage = smsResult.message;
+                    console.error(`[Background Task Error] Failed to send message ID ${scheduledMsg._id}. API Error: ${smsResult.message}`);
                 }
 
             } catch (sendError: any) {
-                // Catch errors during the sendSms call itself
-                // finalStatus remains 'failed'
-                failed++;
-                console.error(`[Background Task Error] Unhandled error sending SMS for message ID ${message._id}:`, sendError);
+                failedCount++;
+                smsErrorMessage = sendError.message || 'Unknown error during SMS send';
+                console.error(`[Background Task Error] Unhandled error sending SMS for message ID ${scheduledMsg._id}:`, sendError);
             } finally {
-                // Update status in DB regardless of send outcome (unless skipped)
+                // Update status in scheduled_messages collection
                 try {
-                    console.log(`[Background Task] Updating message ID ${message._id} status to '${finalStatus}'.`);
                     await db.collection('scheduled_messages').updateOne(
-                        { _id: message._id, status: 'pending' }, // Ensure it's still pending before updating (atomicity)
-                        { $set: { status: finalStatus } }
+                        { _id: scheduledMsg._id, status: 'pending' },
+                        { $set: { status: finalDbStatus } }
                     );
                 } catch (dbUpdateError) {
-                    // If DB update fails, log critical error, status remains pending for next run
-                    console.error(`[CRITICAL] Failed to update status for message ID ${message._id} to '${finalStatus}' after processing:`, dbUpdateError);
-                    // Decrement counts if update fails, as the message wasn't successfully processed
-                    if (finalStatus === 'sent') sent--;
-                    if (finalStatus === 'failed') failed--;
-                    // Consider adding a retry mechanism or alerting
+                    console.error(`[CRITICAL] Failed to update status for scheduled_messages ID ${scheduledMsg._id} to '${finalDbStatus}':`, dbUpdateError);
+                    // Adjust counts if DB update fails, message will be re-processed.
+                    if (finalDbStatus === 'sent') sentCount--; else failedCount--;
+                    continue; // Skip history logging if DB update failed for scheduled_messages
                 }
+
+                // Log to message_history
+                const historyEntry: MessageHistoryInput = {
+                    recipientPhone: scheduledMsg.recipient,
+                    content: scheduledMsg.content,
+                    status: historyStatus,
+                    type: scheduledMsg.messageType,
+                    templateId: scheduledMsg.templateId,
+                    templateName: scheduledMsg.templateName,
+                    parameters: scheduledMsg.parameters,
+                    userId: scheduledMsg.userId,
+                    scheduledAt: scheduledMsg.scheduledTime,
+                    processedAt: new Date(), // Time of this processing attempt
+                    apiMessageId: smsApiMessageId,
+                    apiResponse: smsApiResponse,
+                    errorMessage: smsErrorMessage,
+                };
+                await logMessageToHistory(historyEntry);
             }
         } // End loop
 
-        console.log(`[Background Task] Finished processing. Attempted: ${processed}, Sent: ${sent}, Failed: ${failed}.`);
+        console.log(`[Background Task] Finished processing. Attempted: ${processedCount}, Sent: ${sentCount}, Failed: ${failedCount}.`);
 
-        if (sent > 0 || failed > 0) {
-            console.log("[Background Task] Revalidating scheduled messages path due to status changes.");
-            revalidatePath('/dashboard/scheduled'); // Revalidate if statuses changed
+        if (sentCount > 0 || failedCount > 0) {
+            console.log("[Background Task] Revalidating paths due to status changes.");
+            revalidatePath('/dashboard/scheduled');
+            revalidatePath('/dashboard/reports');
         }
 
-        return { processed, sent, failed }; // Return counts based on DB update success
+        return { processed: processedCount, sent: sentCount, failed: failedCount };
 
     } catch (error: any) {
         console.error("[Background Task Error] Error during processPendingMessages:", error);
-        // Depending on the error, you might want to throw it or handle differently
-        return { processed: 0, sent, failed }; // Return counts up to the point of failure
+        return { processed: 0, sent: sentCount, failed: failedCount };
     }
 }
