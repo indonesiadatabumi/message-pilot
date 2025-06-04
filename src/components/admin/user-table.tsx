@@ -14,8 +14,8 @@ import { Badge } from "@/components/ui/badge"; // For admin status
 import { Edit, Trash2, ShieldCheck, User as UserIcon } from "lucide-react"; // Icons
 import type { User } from "@/services/user-service"; // Placeholder - needs creation
 import { format } from "date-fns"; // For date formatting
-// Placeholder for Edit/Delete Modals/Alerts
-// import { EditUserDialog } from "./edit-user-dialog";
+import { updateUser, deleteUser } from "@/actions/user-actions"; // Assuming actions are exported
+import { EditUserDialog } from "./edit-user-dialog";
 // import { DeleteUserAlert } from "./delete-user-alert";
 
 interface UserTableProps {
@@ -26,10 +26,10 @@ export function UserTable({ users: initialUsers }: UserTableProps) {
     // const router = useRouter(); // If needed for refresh
     const [users, setUsers] = React.useState(initialUsers);
     // State for modals when implemented
-    // const [editingUser, setEditingUser] = React.useState<User | null>(null);
-    // const [deletingUser, setDeletingUser] = React.useState<User | null>(null);
-    // const [isEditDialogOpen, setIsEditDialogOpen] = React.useState(false);
-    // const [isDeleteDialogOpen, setIsDeleteDialogOpen] = React.useState(false);
+    const [editingUser, setEditingUser] = React.useState<User | null>(null);
+    const [deletingUser, setDeletingUser] = React.useState<User | null>(null);
+    const [isEditDialogOpen, setIsEditDialogOpen] = React.useState(false);
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = React.useState(false);
 
     // Update local state if initial props change
     React.useEffect(() => {
@@ -38,18 +38,26 @@ export function UserTable({ users: initialUsers }: UserTableProps) {
 
     // Handlers for edit/delete actions (placeholders)
     const handleEditClick = (user: User) => {
-        console.log("Edit user:", user.username);
-        // setEditingUser(user); setIsEditDialogOpen(true);
+        setEditingUser(user);
+        setIsEditDialogOpen(true);
     };
 
     const handleDeleteClick = (user: User) => {
         console.log("Delete user:", user.username);
-        // setDeletingUser(user); setIsDeleteDialogOpen(true);
+        setDeletingUser(user);
+        setIsDeleteDialogOpen(true);
     };
 
     // Callbacks for modal success (placeholders)
-    // const handleEditSuccess = (updatedUser: User) => { ... };
-    // const handleDeleteSuccess = () => { ... };
+    const handleEditSuccess = (updatedUser: User) => {
+        console.log("User updated successfully:", updatedUser.username);
+        // Optimistically update the user list
+        setUsers(users.map(user => user._id === updatedUser._id ? updatedUser : user));
+    };
+    const handleDeleteSuccess = (deletedUserId: string) => {
+        console.log("User deleted successfully:", deletedUserId);
+        setUsers(users.filter(user => user._id !== deletedUserId));
+    };
 
     // Callbacks for modal close (placeholders)
     // const handleEditClose = () => { ... };
@@ -119,7 +127,7 @@ export function UserTable({ users: initialUsers }: UserTableProps) {
 
             {/* Placeholder Modals */}
             {/* <EditUserDialog user={editingUser} open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen} onSaveSuccess={handleEditSuccess} /> */}
-            {/* <DeleteUserAlert user={deletingUser} open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen} onConfirmDelete={handleDeleteSuccess} /> */}
+            {/* <DeleteUserAlert user={deletingUser} open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen} onConfirmDelete={handleDeleteSuccess} /> */} {/* Uncomment when DeleteUserAlert is ready */}
         </>
     );
 }
