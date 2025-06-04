@@ -24,7 +24,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
-import { ContactSelector } from "./contact-selector";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import type { Contact } from "@/services/message-service"; // Use type import
 import { handleSendPrivateMessage } from "@/actions/message-actions"; // Import the server action
 
@@ -40,11 +40,15 @@ const scheduledTimeValidation = (data: { scheduleEnabled: boolean, scheduledDate
 
 // Schema now uses scheduledDateTime directly
 const formSchema = z.object({
-  recipient: z.custom<Contact>((val) => val instanceof Object && '_id' in val && 'name' in val && 'phone' in val, {
-    message: "Please select a recipient.",
-  }),
-  content: z.string().min(1, { message: "Message content cannot be empty." }).max(1000, {message: "Message too long."}),
+  // Allow recipient to be a Contact object or a valid phone number string
+  recipient: z.union([
+    z.custom<Contact>((val) => val instanceof Object && '_id' in val && 'name' in val && 'phone' in val && typeof val.phone === 'string', {
+      message: "Invalid contact object.",
+    }),
+    z.string().regex(/^\+?[1-9]\d{1,14}$/, "Invalid phone number format."), // Basic international phone number regex
+  ], { message: "Please select a valid recipient or enter a valid phone number." }),
   scheduleEnabled: z.boolean().default(false),
+  content: z.string().min(1, { message: "Message content cannot be empty." }),
   scheduledDateTime: z.date().optional(), // Combined Date and Time object
 }).refine(data => !data.scheduleEnabled || data.scheduledDateTime, {
     message: "Please select a valid date and time for scheduled messages.",
@@ -52,7 +56,7 @@ const formSchema = z.object({
 }).refine(scheduledTimeValidation, {
     message: "Scheduled time must be in the future.",
     path: ["scheduledDateTime"],
-});
+}); // Missing closing parenthesis and curly brace here
 
 type PrivateMessageFormValues = z.infer<typeof formSchema>;
 
@@ -65,6 +69,9 @@ export function SendPrivateMessageForm({ contacts }: SendPrivateMessageFormProps
   // Local state to manage date and time inputs separately
   const [selectedDate, setSelectedDate] = React.useState<Date | undefined>(undefined);
   const [selectedTime, setSelectedTime] = React.useState<string>(""); // HH:MM
+   // State for the recipient input value and suggestions
+  const [recipientInput, setRecipientInput] = React.useState("");
+  const [openSuggestions, setOpenSuggestions] = React.useState(false);
 
   const form = useForm<PrivateMessageFormValues>({
     resolver: zodResolver(formSchema),
@@ -75,6 +82,22 @@ export function SendPrivateMessageForm({ contacts }: SendPrivateMessageFormProps
       scheduledDateTime: undefined, // Initialize as undefined
     },
   });
+
+   // Filter contacts for suggestions
+   const filteredContacts = React.useMemo(() => {
+     if (!recipientInput) return [];
+     const lowercasedInput = recipientInput.toLowerCase();
+     return contacts.filter(contact =>
+       contact.name.toLowerCase().includes(lowercasedInput) ||
+       contact.phone.toLowerCase().includes(lowercasedInput)
+     );
+   }, [recipientInput, contacts]);
+
+   // Update recipient input when a contact is selected via the form value
+   React.useEffect(() => {
+     const currentRecipient = form.getValues("recipient");
+     if (currentRecipient && typeof currentRecipient !== 'string') setRecipientInput(currentRecipient.name || currentRecipient.phone || ""); // Use name for display if available
+   }, [form.watch("recipient")]); // Watch for changes in the form's recipient value
 
    const scheduleEnabled = form.watch("scheduleEnabled");
 
@@ -115,8 +138,17 @@ export function SendPrivateMessageForm({ contacts }: SendPrivateMessageFormProps
   const onSubmit = async (values: PrivateMessageFormValues) => {
     setIsLoading(true);
     // The 'values' object now correctly contains scheduledDateTime if enabled
-    console.log("Submitting values:", values);
 
+    let recipientPhone: string;
+    let recipientName: string | undefined = undefined;
+
+    if (typeof values.recipient !== 'string') {
+        // It's a Contact object
+        recipientPhone = values.recipient.phone;
+        recipientName = values.recipient.name;
+    } else {
+        recipientPhone = values.recipient; // It's a phone number string
+    }
     try {
        // Call the server action directly with the form values
        const result = await handleSendPrivateMessage(values);
@@ -179,19 +211,49 @@ export function SendPrivateMessageForm({ contacts }: SendPrivateMessageFormProps
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        {/* Add a hidden input for the actual form value */}
+        <input type="hidden" {...form.register("recipient")} />
+
+        {/* Use a separate FormField for the visual input and suggestions */}
         <FormField
           control={form.control}
           name="recipient"
           render={({ field }) => (
             <FormItem className="flex flex-col">
-              <FormLabel>Recipient</FormLabel>
-              <ContactSelector
-                contacts={contacts}
-                selected={field.value}
-                onSelect={field.onChange}
-                placeholder="Select a contact"
-                disabled={isLoading}
-              />
+              <FormLabel>Recipient (Start typing name or phone number)</FormLabel>
+              <Command shouldFilter={false}> {/* Disable built-in filtering */}
+                <CommandInput
+                  placeholder="Search contacts..."
+                  value={recipientInput}
+                  onValueChange={(value) => {
+                    setRecipientInput(value);
+                    setOpenSuggestions(true); // Open suggestions when typing
+                  }}
+                  disabled={isLoading}
+                />
+                <CommandList> {/* moved closing tag here */}
+                  {openSuggestions && filteredContacts.length > 0 && (
+                    <CommandGroup heading="Suggestions">
+                      {filteredContacts.map((contact) => (
+                        <CommandItem
+                          key={contact._id?.toString()}
+                          value={contact.name || contact.phone} // Value for selection
+                          onSelect={() => {
+                            form.setValue("recipient", contact, { shouldValidate: true });
+                            setRecipientInput(contact.name || contact.phone || ""); // Update input display
+                            setOpenSuggestions(false);
+                          }}
+                        >
+                          {contact.name} ({contact.phone})
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  )}
+                  {openSuggestions && filteredContacts.length === 0 && recipientInput && (
+                    <CommandEmpty>No contacts found.</CommandEmpty>
+                  )}
+                </CommandList>
+              </Command>
               <FormMessage />
             </FormItem>
           )}

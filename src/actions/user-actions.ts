@@ -4,7 +4,7 @@
 import type { User } from '@/services/user-service';
 import { revalidatePath } from 'next/cache';
 import { getDb } from '@/lib/mongodb';
-import { ObjectId } from 'mongodb';
+import { ObjectId, WithId } from 'mongodb';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs'; // For password hashing
 
@@ -40,6 +40,8 @@ export async function getUsers(): Promise<User[]> {
             ...user,
             _id: user._id.toString(),
             createdAt: new Date(user.createdAt), // Ensure createdAt is a Date object
+            username: user.username, // Include username
+            isAdmin: user.isAdmin,   // Include isAdmin
         }));
     } catch (error) {
         console.error("[Action Error] Error fetching users:", error);
@@ -135,7 +137,11 @@ export async function authenticateUser(credentials: unknown): Promise<Authentica
         const db = await getDb();
         console.log(`[Action] Fetching user "${username}" from DB for authentication...`);
         // Find user by username, explicitly request passwordHash
-        let user = await db.collection<User>('users').findOne({ username });
+
+        const userDocument: WithId<User> | null = await db.collection<User>('users').findOne({ username });
+
+        let user: User | null = null;
+        if (userDocument) { user = userDocument; }
 
         // --- Default Admin Creation Logic ---
         if (!user && username === DEFAULT_ADMIN_USERNAME) {
@@ -155,7 +161,12 @@ export async function authenticateUser(credentials: unknown): Promise<Authentica
                     if (insertResult.insertedId) {
                         console.log(`[Action] Default admin user "${DEFAULT_ADMIN_USERNAME}" created successfully.`);
                         // Fetch the newly created user to continue authentication
-                        user = await db.collection<User>('users').findOne({ _id: insertResult.insertedId });
+                        const userDocument: WithId<User> | null = await db.collection<User>('users').findOne({ _id: insertResult.insertedId });
+
+                        let user: User | null = null;
+                        if (userDocument) { user = userDocument; }
+
+
                     } else {
                         console.error("[Action Error] Failed to insert default admin user.");
                         // Continue without user, will result in login failure below
@@ -191,7 +202,7 @@ export async function authenticateUser(credentials: unknown): Promise<Authentica
         return {
             success: true,
             user: {
-                _id: user._id.toString(),
+                _id: user._id!.toString(),
                 username: user.username,
                 isAdmin: user.isAdmin,
             },
@@ -204,8 +215,90 @@ export async function authenticateUser(credentials: unknown): Promise<Authentica
 }
 
 
-// --- TODO: Implement Update User Action ---
-// export async function updateUser(...) { ... }
+// --- Update User Action ---
+const UpdateUserSchema = z.object({
+    _id: z.string().refine(val => ObjectId.isValid(val), {
+        message: "Invalid user ID format."
+    }),
+    username: z.string().min(3, { message: "Username must be at least 3 characters." }).max(50)
+        // Prevent changing username to the default admin username
+        .refine(username => username.toLowerCase() !== DEFAULT_ADMIN_USERNAME, {
+            message: `Cannot change username to '${DEFAULT_ADMIN_USERNAME}'.`,
+        }).optional(), // Make username optional for update if not always changed
+    password: z.string().min(6, { message: "Password must be at least 6 characters." }).max(100).optional().or(z.literal('')), // Allow empty string for no password change
+    isAdmin: z.boolean().optional(),
+});
+
+type UpdateUserResult = { success: true; user: User } | { success: false; error: string; fieldErrors?: Record<string, string[]> };
+
+export async function updateUser(formData: unknown): Promise<UpdateUserResult> {
+    console.log("[Action] Attempting to update user in DB...", formData);
+
+    const validatedFields = UpdateUserSchema.safeParse(formData);
+    if (!validatedFields.success) {
+        console.error("[Action Error] Update Validation Failed:", validatedFields.error.flatten());
+        return {
+            success: false,
+            error: "Validation failed. Please check the form fields.",
+            fieldErrors: validatedFields.error.flatten().fieldErrors,
+        };
+    }
+
+    const { _id, username, password, isAdmin } = validatedFields.data;
+    const userId = new ObjectId(_id);
+
+    try {
+        const db = await getDb();
+
+        // If username is being updated, check for uniqueness (case-insensitive)
+        if (username !== undefined) {
+             // Find user by ID to get current username
+            const currentUser = await db.collection<User>('users').findOne({ _id: userId });
+             // Check if the new username is different from the current one
+            if (currentUser && currentUser.username.toLowerCase() !== username.toLowerCase()) {
+                const existingUser = await db.collection('users').findOne({ username: { $regex: `^${username}$`, $options: 'i' } });
+                if (existingUser && !existingUser._id.equals(userId)) { // Ensure it's not the same user
+                    console.warn(`[Action Warn] Update failed: Username "${username}" already exists.`);
+                    return { success: false, error: "Username already exists.", fieldErrors: { username: ["Username is taken."] } };
+                }
+            }
+        }
+
+        const updateDoc: any = {};
+        if (username !== undefined) updateDoc.username = username;
+        if (isAdmin !== undefined) updateDoc.isAdmin = isAdmin;
+        if (password !== undefined && password !== '') {
+            updateDoc.passwordHash = await bcrypt.hash(password, 10); // Hash new password
+        }
+
+        if (Object.keys(updateDoc).length === 0) {
+            console.log("[Action] No fields to update for user ID:", _id);
+             // Fetch and return the current user data if no changes were made
+            const updatedUser = await db.collection<User>('users').findOne({ _id: userId }, { projection: { passwordHash: 0 } });
+             if (updatedUser) {
+                  return { success: true, user: { ...updatedUser, _id: updatedUser._id.toString() } };
+             } else {
+                  return { success: false, error: "User not found after attempted update (no changes)." };
+             }
+        }
+
+        console.log(`[Action] Updating user ID: ${_id} with`, updateDoc);
+        const result = await db.collection<User>('users').updateOne(
+            { _id: userId },
+            { $set: updateDoc }
+        );
+
+        // For simplicity, let's just revalidate the path. A more complex app might fetch the updated user.
+        console.log(`[Action] User ID: ${_id} updated successfully. Matched: ${result.matchedCount}, Modified: ${result.modifiedCount}`);
+        revalidatePath('/admin/users');
+        // Return a success message, frontend might need to re-fetch or update state
+        // Returning a placeholder User object for now, you might adjust this
+        return { success: true, user: { _id, username: username || '', isAdmin: isAdmin ?? false, createdAt: new Date() } }; // Return updated fields or placeholder
+    } catch (error: any) {
+        console.error("[Action Error] Error updating user:", error);
+        return { success: false, error: error.message || "Database error occurred during user update." };
+    }
+}
 
 // --- TODO: Implement Delete User Action ---
 // export async function deleteUser(...) { ... }

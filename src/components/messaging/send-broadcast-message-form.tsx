@@ -172,6 +172,16 @@ export function SendBroadcastMessageForm({ contacts }: SendBroadcastMessageFormP
           render={({ field }) => (
             <FormItem className="flex flex-col">
               <FormLabel>Recipients</FormLabel>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="selectAllRecipients"
+                  checked={field.value.length === contacts.length && contacts.length > 0}
+                  onCheckedChange={(checked) => {
+                    field.onChange(checked ? contacts : []);
+                  }}
+                />
+                <label htmlFor="selectAllRecipients" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">Select All</label>
+              </div>
               <ContactSelector
                 contacts={contacts}
                 selected={field.value}
