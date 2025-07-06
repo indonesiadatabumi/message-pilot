@@ -91,7 +91,7 @@ export function ScheduledMessagesTable({ scheduledMessages: initialMessages }: S
             ) : (
               messages.map((message) => (
                 // Use _id as key
-                <TableRow key={message._id?.toString()}>
+                (<TableRow key={message._id?.toString()}>
                   <TableCell className="font-medium">{message.recipient}</TableCell>
                   <TableCell className="max-w-xs truncate">{message.content}</TableCell>
                   {/* Display the pre-formatted time */}
@@ -116,22 +116,21 @@ export function ScheduledMessagesTable({ scheduledMessages: initialMessages }: S
                         }
                     />
                   </TableCell>
-                </TableRow>
+                </TableRow>)
               ))
             )}
           </TableBody>
         </Table>
       </div>
-
-       {/* Edit Dialog Placeholder (when implemented) */}
-       {/*
-        <EditScheduledMessageDialog
-            message={editingMessage}
-            open={isEditDialogOpen}
-            onOpenChange={setIsEditDialogOpen}
-            onSaveSuccess={handleEditSuccess}
-        />
-        */}
+      {/* Edit Dialog Placeholder (when implemented) */}
+      {/*
+       <EditScheduledMessageDialog
+           message={editingMessage}
+           open={isEditDialogOpen}
+           onOpenChange={setIsEditDialogOpen}
+           onSaveSuccess={handleEditSuccess}
+       />
+       */}
     </>
   );
 }
