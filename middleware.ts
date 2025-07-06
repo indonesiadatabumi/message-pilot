@@ -26,10 +26,10 @@ export function middleware(request: NextRequest) {
   if (isPublicRoute) {
     // If logged in (has token) and trying to access a public route like /login:
     if (token) {
-        // Redirect logged-in users away from login page based on their role
-        const redirectUrl = isAdmin ? '/admin/dashboard' : '/dashboard';
-        console.log(`[Middleware] User is logged in (isAdmin=${isAdmin}) and accessing public route ${pathname}. Redirecting to ${redirectUrl}.`);
-        return NextResponse.redirect(new URL(redirectUrl, request.url));
+      // Redirect logged-in users away from login page based on their role
+      const redirectUrl = isAdmin ? '/admin/dashboard' : '/dashboard';
+      console.log(`[Middleware] User is logged in (isAdmin=${isAdmin}) and accessing public route ${pathname}. Redirecting to ${redirectUrl}.`);
+      return NextResponse.redirect(new URL(redirectUrl, request.url));
     }
     // Otherwise (not logged in), allow access to the public route
     console.log(`[Middleware] User is not logged in. Allowing access to public route ${pathname}.`);
@@ -50,21 +50,21 @@ export function middleware(request: NextRequest) {
 
   // Protect Admin Routes: Redirect non-admins trying to access admin routes
   if (isAdminRoute && !isAdmin) {
-     console.log(`[Middleware] Non-admin user (isAdmin=${isAdmin}) attempting to access ADMIN route ${pathname}. Redirecting to /dashboard.`);
-     return NextResponse.redirect(new URL('/dashboard', request.url));
+    console.log(`[Middleware] Non-admin user (isAdmin=${isAdmin}) attempting to access ADMIN route ${pathname}. Redirecting to /dashboard.`);
+    return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
   // Redirect Admins from Regular User Dashboard: If an admin lands on /dashboard, send them to /admin/dashboard
   if (pathname === '/dashboard' && isAdmin) {
-     console.log(`[Middleware] ADMIN user (isAdmin=${isAdmin}) accessing USER dashboard ${pathname}. Redirecting to /admin/dashboard.`);
-     return NextResponse.redirect(new URL('/admin/dashboard', request.url));
+    console.log(`[Middleware] ADMIN user (isAdmin=${isAdmin}) accessing USER dashboard ${pathname}. Redirecting to /admin/dashboard.`);
+    return NextResponse.redirect(new URL('/admin/dashboard', request.url));
   }
 
   // Redirect Regular Users from Admin Routes (redundant with isAdminRoute check, but safe)
   // This case might be hit if an admin somehow gets demoted while having an admin URL open
   if (isAdminRoute && !isAdmin) {
-      console.log(`[Middleware] Double-check: Non-admin user somehow past initial check for admin route ${pathname}. Redirecting to /dashboard.`);
-      return NextResponse.redirect(new URL('/dashboard', request.url));
+    console.log(`[Middleware] Double-check: Non-admin user somehow past initial check for admin route ${pathname}. Redirecting to /dashboard.`);
+    return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
 

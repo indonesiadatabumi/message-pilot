@@ -137,19 +137,19 @@ export function ContactSelector({
                 <div className="flex flex-wrap gap-1">
                     {selected.map(contact => (
                         // Use _id as key for badge
-                        <Badge key={contact._id?.toString()} variant="secondary" className="flex items-center gap-1">
-                            {contact.name}
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation(); // Prevent popover close
-                                    handleSelect(contact); // Deselect
-                                }}
-                                className="ml-1 rounded-full outline-none ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                                aria-label={`Remove ${contact.name}`}
-                            >
-                                <XIcon className="h-3 w-3 text-muted-foreground hover:text-foreground" />
-                            </button>
-                        </Badge>
+                        (<Badge key={contact._id?.toString()} variant="secondary" className="flex items-center gap-1">
+                          {contact.name}
+                          <button
+                              onClick={(e) => {
+                                  e.stopPropagation(); // Prevent popover close
+                                  handleSelect(contact); // Deselect
+                              }}
+                              className="ml-1 rounded-full outline-none ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                              aria-label={`Remove ${contact.name}`}
+                          >
+                              <XIcon className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                          </button>
+                        </Badge>)
                     ))}
                 </div>
             </div>

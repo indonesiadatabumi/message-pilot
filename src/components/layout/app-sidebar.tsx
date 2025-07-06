@@ -63,21 +63,19 @@ export function AppSidebar() {
       <SidebarContent className="p-2">
         <SidebarMenu>
           {menuItems.map((item) => (
-            <SidebarMenuItem key={item.href}>
-              <Link href={item.href} passHref legacyBehavior>
-                <SidebarMenuButton
-                  asChild
-                  isActive={pathname === item.href || (pathname.startsWith(item.href) && item.href !== '/dashboard')} // Active state logic
-                  tooltip={item.label}
-                >
-                  <a>
-                    <item.icon />
-                    <span>{item.label}</span>
-                  </a>
+ <SidebarMenuItem key={item.href}>
+              <SidebarMenuButton
+                asChild
+                isActive={pathname === item.href || (pathname.startsWith(item.href) && item.href !== '/dashboard')} // Active state logic
+                tooltip={item.label}
+              >
+ <Link href={item.href}>
+                  <item.icon />
+                  <span>{item.label}</span>
+ </Link>
                 </SidebarMenuButton>
-              </Link>
-            </SidebarMenuItem>
-          ))}
+ </SidebarMenuItem>
+ ))}
         </SidebarMenu>
       </SidebarContent>
       <SidebarFooter className="hidden md:flex p-2"> {/* Hidden on mobile */}

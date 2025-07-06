@@ -10,15 +10,15 @@ import { format } from "date-fns";
 
 import { Button } from "@/components/ui/button";
 import {
-  Form,
   FormControl,
+  Form,
   FormField,
   FormItem,
   FormLabel,
   FormMessage,
   FormDescription,
 } from "@/components/ui/form";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Checkbox } from "../ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
@@ -241,110 +241,96 @@ export function SendTemplateMessageForm({ contacts, templates }: SendTemplateMes
     reader.onload = (e) => {
       const text = e.target?.result as string;
       if (!text) {
-        toast({ variant: "destructive", title: "Error", description: "Could not read file content." });
+        toast({ variant: "destructive", title: "Error", description: "Could not read file content." }); // Use default variant
         setIsParsing(false);
         return;
       }
 
       try {
-        const lines = text.split(/\r?\n/).filter(line => line.trim() !== ''); // Split lines and remove empty ones
+        // Basic CSV parsing (simplified for now - assumes simple comma separation and no complex values)
+        // A more robust parser like 'csv-parse' would be needed for production
+        const lines = text.split('\n').filter(line => line.trim() !== '');
+
         if (lines.length < 2) {
-          throw new Error("CSV must contain at least a header row and one data row.");
+          throw new Error("CSV must contain a header row and at least one data row.");
         }
 
-        // Parse header, converting to lower case for case-insensitive matching
-        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-        const phoneHeaderIndex = headers.indexOf('phone');
-        if (phoneHeaderIndex === -1) {
+        const headers = lines[0].split(',');
+        const phoneIndex = headers.indexOf('phone');
+        const nameIndex = headers.indexOf('name'); // Assuming 'name' is optional but helpful
+
+        if (phoneIndex === -1) {
           throw new Error("CSV must contain a 'phone' column.");
         }
 
-        const templateParams = extractParams(selectedTemplate.content);
-        const paramIndices: { [key: string]: number } = {};
-        const missingParams: string[] = [];
-
-        // Find indices for required template parameters in the CSV header
-        templateParams.forEach(param => {
-          const index = headers.indexOf(param.toLowerCase());
-          if (index === -1) {
-            missingParams.push(param);
-          } else {
-            paramIndices[param] = index;
-          }
-        });
-
-        if (missingParams.length > 0) {
-          throw new Error(`CSV is missing required columns for parameters: ${missingParams.join(', ')}`);
-        }
-
+        // Simple parsing, just extract phone numbers for now
+        const importedPhones = new Set<string>();
         const importedRecipientsData: DynamicBulkTemplateMessageFormValues['recipientsData'] = [];
-        const importedContacts: Contact[] = [];
         const errors: string[] = [];
 
         // Process data rows
         for (let i = 1; i < lines.length; i++) {
           const values = lines[i].split(',');
-          const phone = values[phoneHeaderIndex]?.trim();
+          const phone = values[phoneIndex]?.trim();
 
           if (!phone) {
             errors.push(`Row ${i + 1}: Missing phone number.`);
             continue;
           }
 
-          // Find contact object using phone number
           const contact = contacts.find(c => c.phone === phone);
           if (!contact) {
             errors.push(`Row ${i + 1}: Contact with phone ${phone} not found.`);
             continue;
           }
 
-          // Extract parameters for this contact
-          const parameters: { [key: string]: string } = {};
-          let rowHasMissingParamValue = false;
-          templateParams.forEach(param => {
-            const value = values[paramIndices[param]]?.trim();
-            if (!value) {
-              rowHasMissingParamValue = true;
-              errors.push(`Row ${i + 1} (Phone: ${phone}): Missing value for parameter '{{${param}}}'.`);
-            }
-            parameters[param] = value || ''; // Assign empty string if missing, error already logged
-          });
+          // Prevent duplicates if multiple rows have the same phone
+          if (!importedPhones.has(phone)) {
+            importedPhones.add(phone);
 
-          // Only add if no essential data is missing (phone found, no missing param values for this row)
-          if (contact && !rowHasMissingParamValue) {
+            const parameters: Record<string, string> = {};
+            currentParams.forEach(paramName => {
+              const headerIndex = headers.indexOf(paramName);
+              parameters[paramName] = headerIndex !== -1 && values[headerIndex] !== undefined ? values[headerIndex].trim() : '';
+            });
+
             importedRecipientsData.push({ recipient: contact, parameters });
-            importedContacts.push(contact);
+
+          } else {
+            errors.push(`Row ${i + 1}: Duplicate phone number ${phone} found.`);
           }
+
         } // End row processing loop
 
-
+        // Handle errors first
         if (errors.length > 0) {
           // Show errors, but still proceed with successfully parsed rows if any
           toast({
             variant: "destructive",
             title: `Import Errors (${errors.length})`,
             description: (
-              <div className="max-h-40 overflow-y-auto">
+              <div className="max-h-32 overflow-y-auto"> {/* Smaller max height for toast */}
                 <ul className="list-disc pl-5">
-                  {errors.slice(0, 5).map((err, i) => <li key={i}>{err}</li>)}
-                  {errors.length > 5 && <li>... and {errors.length - 5} more errors.</li>}
+                  {errors.map((err, i) => <li key={i}>{err}</li>)}
                 </ul>
               </div>
             ),
-            duration: 10000 // Longer duration for errors
+            duration: 10000 // Keep longer duration for errors
           });
         }
 
+        // Then handle successful imports
         if (importedRecipientsData.length > 0) {
-          // Replace the entire field array with imported data
-          replace(importedRecipientsData);
-          // Update the ContactSelector state
-          setSelectedContacts(importedContacts);
+          // Update the selected contacts state which will trigger the useEffect
+          // to sync with the field array and populate default parameters.
+          setSelectedContacts(importedRecipientsData.map(item => item.recipient));
           toast({
             title: "Import Successful",
-            description: `Imported data for ${importedRecipientsData.length} recipients. Please review the parameters.`
+            description: `Imported ${importedRecipientsData.length} unique recipients. Please fill in their parameters manually.`,
           });
-        } else if (errors.length === 0) {
+        }
+
+        if (importedRecipientsData.length === 0 && errors.length === 0) {
           toast({
             variant: "default",
             title: "Import Warning",
@@ -356,7 +342,7 @@ export function SendTemplateMessageForm({ contacts, templates }: SendTemplateMes
       } catch (error: any) {
         console.error("Error parsing CSV:", error);
         toast({ variant: "destructive", title: "Import Failed", description: error.message });
-        replace([]); // Clear fields on error
+        replace([]); // Clear field array on parse error
         setSelectedContacts([]);
       } finally {
         setIsParsing(false);
@@ -526,14 +512,13 @@ export function SendTemplateMessageForm({ contacts, templates }: SendTemplateMes
               placeholder="Select contacts manually or import"
               multiple
               disabled={isLoading || isParsing || !selectedTemplate} // Disable if no template selected
-            />
+            /> {/* Removed value prop, relying on internal state */}
             <FormMessage>{form.formState.errors.recipientsData?.message}</FormMessage>
             <FormDescription>
               Select contacts manually or import a CSV. Required CSV columns: 'phone'{currentParams.length > 0 ? `, ${currentParams.join(', ')}` : ''}.
             </FormDescription>
           </FormItem>
         </div>
-
 
         {/* Display template content preview */}
         {selectedTemplate && (

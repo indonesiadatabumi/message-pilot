@@ -252,9 +252,9 @@ export async function updateUser(formData: unknown): Promise<UpdateUserResult> {
 
         // If username is being updated, check for uniqueness (case-insensitive)
         if (username !== undefined) {
-             // Find user by ID to get current username
+            // Find user by ID to get current username
             const currentUser = await db.collection<User>('users').findOne({ _id: userId });
-             // Check if the new username is different from the current one
+            // Check if the new username is different from the current one
             if (currentUser && currentUser.username.toLowerCase() !== username.toLowerCase()) {
                 const existingUser = await db.collection('users').findOne({ username: { $regex: `^${username}$`, $options: 'i' } });
                 if (existingUser && !existingUser._id.equals(userId)) { // Ensure it's not the same user
@@ -273,13 +273,13 @@ export async function updateUser(formData: unknown): Promise<UpdateUserResult> {
 
         if (Object.keys(updateDoc).length === 0) {
             console.log("[Action] No fields to update for user ID:", _id);
-             // Fetch and return the current user data if no changes were made
+            // Fetch and return the current user data if no changes were made
             const updatedUser = await db.collection<User>('users').findOne({ _id: userId }, { projection: { passwordHash: 0 } });
-             if (updatedUser) {
-                  return { success: true, user: { ...updatedUser, _id: updatedUser._id.toString() } };
-             } else {
-                  return { success: false, error: "User not found after attempted update (no changes)." };
-             }
+            if (updatedUser) {
+                return { success: true, user: { ...updatedUser, _id: updatedUser._id.toString() } };
+            } else {
+                return { success: false, error: "User not found after attempted update (no changes)." };
+            }
         }
 
         console.log(`[Action] Updating user ID: ${_id} with`, updateDoc);
@@ -302,3 +302,6 @@ export async function updateUser(formData: unknown): Promise<UpdateUserResult> {
 
 // --- TODO: Implement Delete User Action ---
 // export async function deleteUser(...) { ... }
+
+// --- TODO: Implement Register User Action ---
+// export async function registerUser(...) { ... }

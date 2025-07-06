@@ -96,7 +96,7 @@ export function ContactTable({ contacts: initialContacts }: ContactTableProps) {
             ) : (
               contacts.map((contact) => (
                 // Use _id as the key, ensuring it's a string
-                <TableRow key={contact._id?.toString()}>
+                (<TableRow key={contact._id?.toString()}>
                   <TableCell className="font-medium">{contact.name}</TableCell>
                   {/* Display phone */}
                   <TableCell>{contact.phone}</TableCell>
@@ -128,7 +128,7 @@ export function ContactTable({ contacts: initialContacts }: ContactTableProps) {
                         }
                     />
                   </TableCell>
-                </TableRow>
+                </TableRow>)
               ))
             )}
           </TableBody>
