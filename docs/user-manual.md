@@ -16,18 +16,14 @@ You can:
 *   **Delete Contacts**: Remove contacts from your list.
 
 ## Template Management
-
-![Add New Template Form](/docs/images/ss-add-template.jpg)
+![Add New Template Form](/docs/images/ss-template.jpg)
+![Add New Template Form Input](/docs/images/ss-template-input.jpg)
 
 Template Management allows you to create reusable message templates. You can:
 
 *   **Create Templates**: Design message templates with placeholders (e.g., `{{name}}`, `{{appointment_time}}`) for personalized content.
 *   **Edit Templates**: Modify the content or placeholders of existing templates.
 *   **Delete Templates**: Remove templates that are no longer needed.
-
-## Scheduled Messaging
-
-![Scheduled Messages List](/docs/images/ss-scheduled.jpg)
 
 ## Sending Messages
 
