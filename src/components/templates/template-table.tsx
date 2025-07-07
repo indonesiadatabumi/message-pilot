@@ -94,7 +94,7 @@ export function TemplateTable({ templates: initialTemplates }: TemplateTableProp
             ) : (
               templates.map((template) => (
                  // Use _id as the key
-                <TableRow key={template._id?.toString()}>
+                (<TableRow key={template._id?.toString()}>
                   <TableCell className="font-medium">{template.name}</TableCell>
                   <TableCell className="max-w-xs truncate">{template.content}</TableCell>
                   <TableCell className="text-right">
@@ -125,7 +125,7 @@ export function TemplateTable({ templates: initialTemplates }: TemplateTableProp
                         }
                     />
                   </TableCell>
-                </TableRow>
+                </TableRow>)
               ))
             )}
           </TableBody>

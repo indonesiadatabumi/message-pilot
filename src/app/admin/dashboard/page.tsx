@@ -8,7 +8,6 @@ export default function AdminDashboardPage() {
         <div>
             <h1 className="text-3xl font-bold mb-6 text-foreground">Admin Dashboard</h1>
             <p className="text-muted-foreground mb-8">Welcome to the administration area.</p>
-
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <Card className="hover:shadow-md transition-shadow">
                     <CardHeader>
@@ -18,9 +17,9 @@ export default function AdminDashboardPage() {
                         <CardDescription>Register new users or manage existing ones.</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <Link href="/admin/users" passHref>
-                            <Button variant="outline" className="w-full">Go to User Management</Button>
-                        </Link>
+                        <Button variant="outline" className="w-full" asChild>
+                            <Link href="/admin/users">Go to User Management</Link>
+                        </Button>
                     </CardContent>
                 </Card>
 

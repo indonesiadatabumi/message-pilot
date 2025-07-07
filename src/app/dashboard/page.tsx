@@ -8,7 +8,6 @@ export default function DashboardPage() {
     <div className="container mx-auto py-8">
       <h1 className="text-3xl font-bold mb-6 text-foreground">Dashboard</h1>
       <p className="text-muted-foreground mb-8">Welcome to MessagePilot! Manage your communications effectively.</p>
-
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* Quick Actions */}
         <Card className="hover:shadow-md transition-shadow">
@@ -19,7 +18,7 @@ export default function DashboardPage() {
             <CardDescription>View and manage your contacts.</CardDescription>
           </CardHeader>
           <CardContent>
-            <Link href="/dashboard/contacts" passHref>
+            <Link href="/dashboard/contacts" passHref legacyBehavior>
               <Button variant="outline" className="w-full">Go to Contacts</Button>
             </Link>
           </CardContent>
@@ -33,7 +32,7 @@ export default function DashboardPage() {
             <CardDescription>Create and manage message templates.</CardDescription>
           </CardHeader>
           <CardContent>
-            <Link href="/dashboard/templates" passHref>
+            <Link href="/dashboard/templates" passHref legacyBehavior>
               <Button variant="outline" className="w-full">Go to Templates</Button>
             </Link>
           </CardContent>
@@ -47,7 +46,7 @@ export default function DashboardPage() {
             <CardDescription>Send private or broadcast messages.</CardDescription>
           </CardHeader>
           <CardContent>
-             <Link href="/dashboard/send" passHref>
+             <Link href="/dashboard/send" passHref legacyBehavior>
               <Button variant="default" className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">Send Now</Button>
              </Link>
           </CardContent>
@@ -61,13 +60,12 @@ export default function DashboardPage() {
             <CardDescription>View and manage scheduled messages.</CardDescription>
           </CardHeader>
           <CardContent>
-            <Link href="/dashboard/scheduled" passHref>
+            <Link href="/dashboard/scheduled" passHref legacyBehavior>
               <Button variant="outline" className="w-full">View Scheduled</Button>
             </Link>
           </CardContent>
         </Card>
       </div>
-
       {/* Placeholder for potential future widgets like stats or recent activity */}
       {/*
       <div className="mt-10">

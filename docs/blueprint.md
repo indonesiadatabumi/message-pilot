@@ -13,3 +13,17 @@
 - Accent: Blue (#468B97) for interactive elements and highlights.
 - Clean and intuitive layout with a focus on usability.
 - Use clear and recognizable icons for different actions.
+
+## API Documentation: Template Messages
+
+These API endpoints allow external systems to send single or bulk template messages through MessagePilot.
+
+### Send Single Template Message
+
+-   **Method**: `POST`
+-   **Endpoint**: `/api/send-template-message/single`
+-   **Description**: Sends a single template message to a specific recipient, filling in template parameters with provided data.
+-   **Authentication**: Requires an `X-API-Key` header with a valid API key.
+-   **Request Body (JSON)**:
+
+

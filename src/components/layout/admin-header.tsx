@@ -26,7 +26,9 @@ export function AdminHeader() {
 
     return (
         <header className="sticky top-0 z-10 flex h-[57px] items-center gap-4 border-b bg-background px-4 md:px-6">
-            <Link href="/admin/dashboard" className="flex items-center gap-2 font-semibold">
+            <Link
+                href="/admin/dashboard"
+                className="flex items-center gap-2 font-semibold">
                 <ShieldCheck className="h-6 w-6 text-destructive" />
                 <span className="text-lg text-foreground">Admin Panel</span>
             </Link>
