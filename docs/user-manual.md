@@ -29,7 +29,7 @@ Template Management allows you to create reusable message templates. You can:
 
 MessagePilot provides several options for sending messages:
 
-![Send Private Message Form](/docs/images/single-image.png)
+![Send Private Message Form](/docs/images/single-image.jpg)
 
 ![Send Broadcast Message Form](/docs/images/ss-broadcast.jpg)
 
