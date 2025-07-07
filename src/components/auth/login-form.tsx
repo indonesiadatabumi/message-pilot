@@ -146,9 +146,7 @@ export function LoginForm() {
           {isLoading ? "Logging in..." : "Login"}
         </Button>
         {/* Keep the hint for initial setup */}
-        <p className="text-xs text-muted-foreground text-center pt-2">
-          (Hint: Use 'admin' / 'Dbi@2020' or register a user)
-        </p>
+        <p className="text-xs text-muted-foreground text-center pt-2"></p>
       </form>
     </Form>
   );
