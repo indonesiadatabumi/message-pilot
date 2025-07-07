@@ -23,5 +23,7 @@ These API endpoints allow external systems to send single or bulk template messa
 -   **Method**: `POST`
 -   **Endpoint**: `/api/send-template-message/single`
 -   **Description**: Sends a single template message to a specific recipient, filling in template parameters with provided data.
+-   **Authentication**: Requires an `X-API-Key` header with a valid API key.
 -   **Request Body (JSON)**:
+
 

@@ -25,6 +25,17 @@ const bulkTemplateMessageRequestSchema = z.object({
 });
 
 export async function POST(req: Request) {
+  const apiKey = req.headers.get('X-API-Key');
+
+  // Replace with your actual API key validation logic
+  // For simplicity, using a hardcoded value or environment variable
+  const validApiKey = process.env.API_KEY; // Make sure to set this env var
+
+  if (!apiKey || apiKey !== validApiKey) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  }
+
+
   try {
     const body = await req.json();
 
