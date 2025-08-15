@@ -1,133 +1,168 @@
 "use client";
 
-import * as React from "react";
+import { useState } from 'react';
 import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
+  ColumnDef,
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+} from "@tanstack/react-table";
+import { MoreHorizontal } from "lucide-react";
+
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge"; // For admin status
-import { Edit, Trash2, ShieldCheck, User as UserIcon } from "lucide-react"; // Icons
-import type { User } from "@/services/user-service"; // Placeholder - needs creation
-import { format } from "date-fns"; // For date formatting
-import { updateUser, deleteUser } from "@/actions/user-actions"; // Assuming actions are exported
-import { EditUserDialog } from "./edit-user-dialog";
-// import { DeleteUserAlert } from "./delete-user-alert";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useToast } from "@/hooks/use-toast";
+import { GenerateTokenDialog } from "./generate-token-dialog"; // Import the new dialog
+import type { User } from '@/services/user-service'; // Assuming this type export exists
 
 interface UserTableProps {
-    users: User[];
+  users: User[];
+  onUserUpdated: () => void; // Callback to refresh data
 }
 
-export function UserTable({ users: initialUsers }: UserTableProps) {
-    // const router = useRouter(); // If needed for refresh
-    const [users, setUsers] = React.useState(initialUsers);
-    // State for modals when implemented
-    const [editingUser, setEditingUser] = React.useState<User | null>(null);
-    const [deletingUser, setDeletingUser] = React.useState<User | null>(null);
-    const [isEditDialogOpen, setIsEditDialogOpen] = React.useState(false);
-    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = React.useState(false);
+export const UserTable = ({ users, onUserUpdated }: UserTableProps) => {
+    const { toast } = useToast();
+    const [selectedUser, setSelectedUser] = useState<User | null>(null);
+    const [isTokenDialogOpen, setIsTokenDialogOpen] = useState(false);
 
-    // Update local state if initial props change
-    React.useEffect(() => {
-        setUsers(initialUsers);
-    }, [initialUsers]);
-
-    // Handlers for edit/delete actions (placeholders)
-    const handleEditClick = (user: User) => {
-        setEditingUser(user);
-        setIsEditDialogOpen(true);
+    const openTokenDialog = (user: User) => {
+        if (user.role !== 'admin') {
+            toast({
+                variant: 'destructive',
+                title: 'Permission Denied',
+                description: 'Tokens can only be generated for admin users.',
+            });
+            return;
+        }
+        setSelectedUser(user);
+        setIsTokenDialogOpen(true);
     };
 
-    const handleDeleteClick = (user: User) => {
-        console.log("Delete user:", user.username);
-        setDeletingUser(user);
-        setIsDeleteDialogOpen(true);
-    };
+    const columns: ColumnDef<User>[] = [
+        {
+          accessorKey: "name",
+          header: "Name",
+        },
+        {
+          accessorKey: "email",
+          header: "Email",
+        },
+        {
+          accessorKey: "role",
+          header: "Role",
+        },
+        {
+          accessorKey: "adminToken",
+          header: "Admin Token",
+          cell: ({ row }) => {
+            const token = row.original.adminToken;
+            return token ? `...${token.slice(-6)}` : "N/A";
+          }
+        },
+        {
+          id: "actions",
+          cell: ({ row }) => {
+            const user = row.original;
+      
+            return (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="h-8 w-8 p-0">
+                    <span className="sr-only">Open menu</span>
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                  <DropdownMenuItem onClick={() => navigator.clipboard.writeText(user.id)}>
+                    Copy User ID
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => openTokenDialog(user)}>
+                    Generate Token
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled>Edit User (TBD)</DropdownMenuItem>
+                  <DropdownMenuItem disabled>Delete User (TBD)</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            );
+          },
+        },
+      ];
 
-    // Callbacks for modal success (placeholders)
-    const handleEditSuccess = (updatedUser: User) => {
-        console.log("User updated successfully:", updatedUser.username);
-        // Optimistically update the user list
-        setUsers(users.map(user => user._id === updatedUser._id ? updatedUser : user));
-    };
-    const handleDeleteSuccess = (deletedUserId: string) => {
-        console.log("User deleted successfully:", deletedUserId);
-        setUsers(users.filter(user => user._id !== deletedUserId));
-    };
+  const table = useReactTable({
+    data: users,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+  });
 
-    // Callbacks for modal close (placeholders)
-    // const handleEditClose = () => { ... };
-    // const handleDeleteClose = () => { ... };
-
-
-    return (
-        <>
-            <div className="rounded-md border shadow-sm bg-card">
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Username</TableHead>
-                            <TableHead>Role</TableHead>
-                            <TableHead>Created At</TableHead>
-                            <TableHead className="text-right w-[120px]">Actions</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {users.length === 0 ? (
-                            <TableRow>
-                                <TableCell colSpan={4} className="text-center text-muted-foreground">
-                                    No users found.
-                                </TableCell>
-                            </TableRow>
-                        ) : (
-                            users.map((user) => (
-                                <TableRow key={user._id?.toString()}>
-                                    <TableCell className="font-medium">{user.username}</TableCell>
-                                    <TableCell>
-                                        {user.isAdmin ? (
-                                            <Badge variant="destructive" className="flex items-center w-fit">
-                                                <ShieldCheck className="mr-1 h-3 w-3" /> Admin
-                                            </Badge>
-                                        ) : (
-                                            <Badge variant="secondary" className="flex items-center w-fit">
-                                                <UserIcon className="mr-1 h-3 w-3" /> User
-                                            </Badge>
-                                        )}
-                                    </TableCell>
-                                    <TableCell>{format(new Date(user.createdAt), "PPP")}</TableCell> {/* Format date */}
-                                    <TableCell className="text-right">
-                                        {/* Edit Button (Placeholder) */}
-                                        <Button variant="ghost" size="icon" onClick={() => handleEditClick(user)} aria-label="Edit User" disabled>
-                                            <Edit className="h-4 w-4 opacity-50" />
-                                        </Button>
-                                        {/* Delete Button (Placeholder) */}
-                                        {/* Prevent deleting the main admin for safety in this mock */}
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            onClick={() => handleDeleteClick(user)}
-                                            className="text-destructive hover:text-destructive/90"
-                                            aria-label="Delete User"
-                                            disabled={user.username === 'admin'}
-                                            title={user.username === 'admin' ? 'Cannot delete main admin' : 'Delete User'}
-                                        >
-                                            <Trash2 className={`h-4 w-4 ${user.username === 'admin' ? 'opacity-50' : ''}`} />
-                                        </Button>
-                                    </TableCell>
-                                </TableRow>
-                            ))
+  return (
+    <>
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <TableHead key={header.id}>
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(
+                          header.column.columnDef.header,
+                          header.getContext()
                         )}
-                    </TableBody>
-                </Table>
-            </div>
-
-            {/* Placeholder Modals */}
-            {/* <EditUserDialog user={editingUser} open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen} onSaveSuccess={handleEditSuccess} /> */}
-            {/* <DeleteUserAlert user={deletingUser} open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen} onConfirmDelete={handleDeleteSuccess} /> */} {/* Uncomment when DeleteUserAlert is ready */}
-        </>
-    );
-}
+                  </TableHead>
+                ))}
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody>
+            {table.getRowModel().rows?.length ? (
+              table.getRowModel().rows.map((row) => (
+                <TableRow
+                  key={row.id}
+                  data-state={row.getIsSelected() && "selected"}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <TableCell key={cell.id}>
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell colSpan={columns.length} className="h-24 text-center">
+                  No users found.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
+      <GenerateTokenDialog 
+        user={selectedUser}
+        open={isTokenDialogOpen}
+        onOpenChange={setIsTokenDialogOpen}
+        onTokenGenerated={() => {
+            onUserUpdated(); // Refresh the user list
+        }}
+      />
+    </>
+  );
+};

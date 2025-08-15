@@ -1,77 +1,168 @@
-// src/services/message-service.ts
-import type { ObjectId } from 'mongodb';
+import MessageTemplate, { IMessageTemplate } from '@/models/MessageTemplate';
+import Contact, { IContact } from '@/models/Contact';
+import { Types } from 'mongoose';
 
-/**
- * Represents a contact with name and phone number.
- * Includes MongoDB ObjectId if fetched from DB.
- */
-export interface Contact {
-  _id?: ObjectId | string; // Use ObjectId or string for ID flexibility
-  name: string;
-  phone: string; // Renamed from phoneNumber for consistency
+interface SendMessageResult {
+    success: boolean;
+    message?: string;
+    sentCount?: number;
+    failedCount?: number;
+    errors?: { recipientId: string; error: string }[];
 }
 
 /**
- * Represents a message template with a name and content.
- * Includes MongoDB ObjectId if fetched from DB.
+ * Sends a template message to one or more recipients.
  */
-export interface MessageTemplate {
-  _id?: ObjectId | string;
-  name: string;
-  content: string;
-}
+export async function sendTemplateMessage(
+    templateId: string,
+    recipientIds: string | string[],
+    placeholders?: { [key: string]: string }
+): Promise<SendMessageResult> {
+    try {
 
-export type MessageSystemStatus = 'pending' | 'sent' | 'canceled' | 'failed' | 'processing';
-export type MessageSystemType = 'private' | 'broadcast' | 'template';
+        const template: IMessageTemplate | null = await MessageTemplate.findById(templateId);
+        if (!template) {
+            return { success: false, message: 'Template not found.' };
+        }
+
+        const idsToFetch = Array.isArray(recipientIds) ? recipientIds : [recipientIds];
+        const objectIdsToFetch = idsToFetch.map(id => new Types.ObjectId(id));
+
+        const recipients: IContact[] = await Contact.find({ _id: { $in: objectIdsToFetch } });
+
+        if (recipients.length === 0) {
+            return { success: false, message: 'No valid recipients found.' };
+        }
+
+        let sentCount = 0;
+        let failedCount = 0;
+        const errors: { recipientId: string; error: string }[] = [];
+
+        for (const recipient of recipients) {
+            let messageBody = template.body;
+
+            if (template.placeholders && template.placeholders.length > 0) {
+                for (const placeholderKey of template.placeholders) {
+                    const placeholderValue = placeholders?.[placeholderKey] || `{${placeholderKey}}`;
+                    messageBody = messageBody.replace(new RegExp(`{{\s*${placeholderKey}\s*}}`, 'g'), placeholderValue);
+                }
+            }
+
+            messageBody = messageBody.replace(/{{name}}/g, recipient.name);
+            messageBody = messageBody.replace(/{{phone}}/g, recipient.phone);
+            messageBody = messageBody.replace(/{{email}}/g, recipient.email || '');
+
+            console.log(`Prepared message for ${recipient.name} (${recipient.phone}): ${messageBody}`);
+
+            const messageSentSuccessfully = true; // Simulate success
+
+            if (messageSentSuccessfully) {
+                sentCount++;
+            } else {
+                failedCount++;
+                errors.push({ recipientId: recipient._id.toString(), error: 'Failed to send via SMS provider' });
+            }
+        }
+
+        if (sentCount > 0) {
+            return { success: true, message: `Successfully processed ${sentCount} messages.`, sentCount, failedCount, errors };
+        } else {
+            return { success: false, message: `Failed to send any messages.`, sentCount, failedCount, errors };
+        }
+
+    } catch (error: any) {
+        console.error('Error in sendTemplateMessage service:', error);
+        return { success: false, message: error.message || 'An unexpected error occurred in message service.' };
+    }
+}
 
 
 /**
- * Represents a scheduled message with recipient, content, and scheduled time.
- * Includes MongoDB ObjectId if fetched from DB.
+ * Sends a direct message to one or more recipients (bulk).
  */
-export interface ScheduledMessage {
-  _id?: ObjectId | string;
-  recipient: string;
-  content: string;
-  scheduledTime: Date;
-  status: MessageSystemStatus; // Add status tracking
-  createdAt: Date; // Track creation time
+export async function sendBulkMessage(
+    recipientIds: string[],
+    messageBody: string
+): Promise<SendMessageResult> {
+    try {
 
-  // New fields for richer history logging
-  messageType: MessageSystemType;
-  templateId?: string; // ObjectId as string
-  templateName?: string;
-  parameters?: Record<string, string>; // For template messages when messageType is 'template'
-  userId?: string; // Optional: ObjectId as string, who initiated the schedule
+        const objectIdsToFetch = recipientIds.map(id => new Types.ObjectId(id));
+        const recipients: IContact[] = await Contact.find({ _id: { $in: objectIdsToFetch } });
+
+        if (recipients.length === 0) {
+            return { success: false, message: 'No valid recipients found.' };
+        }
+
+        let sentCount = 0;
+        let failedCount = 0;
+        const errors: { recipientId: string; error: string }[] = [];
+
+        for (const recipient of recipients) {
+            console.log(`Sending bulk message to ${recipient.name} (${recipient.phone}): ${messageBody}`);
+
+            const messageSentSuccessfully = true; // Simulate success
+
+            if (messageSentSuccessfully) {
+                sentCount++;
+            } else {
+                failedCount++;
+                errors.push({ recipientId: recipient._id.toString(), error: 'Failed to send via SMS provider' });
+            }
+        }
+
+        if (sentCount > 0) {
+            return { success: true, message: `Successfully sent ${sentCount} bulk messages.`, sentCount, failedCount, errors };
+        } else {
+            return { success: false, message: `Failed to send any bulk messages.`, sentCount, failedCount, errors };
+        }
+
+    } catch (error: any) {
+        console.error('Error in sendBulkMessage service:', error);
+        return { success: false, message: error.message || 'An unexpected error occurred in bulk message service.' };
+    }
 }
 
 
-// Type for template parameters
-export interface TemplateParams {
-  [key: string]: string;
-}
+/**
+ * Sends a direct message to a single recipient (private).
+ */
+export async function sendPrivateMessage(
+    recipientId: string,
+    messageBody: string
+): Promise<SendMessageResult> {
+    try {
+        const objectIdToFetch = new Types.ObjectId(recipientId);
+        const recipient: IContact | null = await Contact.findById(objectIdToFetch);
 
-// --- Message History Types ---
-export interface MessageHistoryBase {
-  recipientPhone: string;
-  content: string;
-  status: MessageSystemStatus;
-  type: MessageSystemType;
-  templateId?: string; // ObjectId as string
-  templateName?: string;
-  parameters?: Record<string, string>; // For template messages
-  userId?: string; // ObjectId as string, if tracking user
-  scheduledAt?: Date; // Original scheduled time, if applicable
-  processedAt: Date; // Time of actual send attempt or terminal status update (e.g. cancellation)
-  apiMessageId?: string; // From SMS provider, if successful send
-  apiResponse?: string; // Raw response from SMS provider, for debugging
-  errorMessage?: string; // If status is 'failed'
-}
+        if (!recipient) {
+            return { success: false, message: 'No valid recipient found.' };
+        }
 
-export interface MessageHistoryEntry extends MessageHistoryBase {
-  _id: ObjectId | string;
-  createdAt: Date; // Timestamp of when this history record itself was created
-}
+        console.log(`Sending private message to ${recipient.name} (${recipient.phone}): ${messageBody}`);
 
-// Input type for logging, omits system-generated fields _id and createdAt for the history entry itself
-export type MessageHistoryInput = MessageHistoryBase;
+        let sentCount = 0;
+        let failedCount = 0;
+        const errors: { recipientId: string; error: string }[] = [];
+
+        const messageSentSuccessfully = true; // Simulate success
+
+        if (messageSentSuccessfully) {
+            sentCount++;
+        } else {
+            failedCount++;
+            errors.push({ recipientId: recipient._id.toString(), error: 'Failed to send via SMS provider' });
+        }
+
+        return {
+            success: true,
+            message: `Successfully sent private message to ${recipient.name}.`,
+            sentCount,
+            failedCount,
+            errors,
+        };
+
+    } catch (error: any) {
+        console.error('Error in sendPrivateMessage service:', error);
+        return { success: false, message: error.message || 'An unexpected error occurred in private message service.' };
+    }
+}

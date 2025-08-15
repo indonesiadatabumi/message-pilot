@@ -2,6 +2,7 @@
 'use server';
 
 import type { User } from '@/services/user-service';
+import crypto from 'crypto';
 import { revalidatePath } from 'next/cache';
 import { getDb } from '@/lib/mongodb';
 import { ObjectId, WithId } from 'mongodb';

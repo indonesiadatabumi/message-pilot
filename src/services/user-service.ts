@@ -11,6 +11,11 @@ export interface User {
     isAdmin: boolean;
     createdAt: Date;
     userId?: string; // Optional: string representation of _id for convenience in actions
+ adminTokens?: {
+    token: string;
+    name: string;
+    expiresAt: Date | null;
+  }[];
 }
 
 // NOTE: Functions related to user management (getUsers, registerUser, etc.)
