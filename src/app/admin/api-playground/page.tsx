@@ -1,4 +1,5 @@
 "use client";
+
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardHeader, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+
 export default function ApiPlayground() {
   const [endpoint, setEndpoint] = useState('http://localhost:3000/api/messages/send-template');
   const [token, setToken] = useState('');
@@ -14,29 +16,26 @@ export default function ApiPlayground() {
   const [response, setResponse] = useState('');
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
+
     const apiOptions = [
-        { label: 'Send Template Message', value: 'http://localhost:3000/api/messages/send-template', 
-          defaultBody: {
-            "templateId": "template123",
-            "recipientIds": ["contact456", "contact789"],
-            "placeholders": {
-              "name": "John",
-              "event": "Meeting"
-            }
-          }
-        },
-        { label: 'Send Bulk Message', value: 'http://localhost:3000/api/messages/send-bulk', 
-          defaultBody: {
-            "recipientIds": ["contact456", "contact789"],
-            "messageBody": "Hello everyone!"
-          }
-        },
-        { label: 'Send Private Message', value: 'http://localhost:3000/api/messages/send-private', 
-          defaultBody: {
-            "recipientId": "contact456",
-            "messageBody": "Hello!"}
-        }
+        { label: 'Send Template Message', value: 'http://localhost:3000/api/messages/send-template', defaultBody: JSON.stringify({
+  "templateId": "template123",
+  "recipientIds": ["contact456", "contact789"],
+  "placeholders": {
+    "name": "John",
+    "event": "Meeting"
+  }
+}, null, 2) },
+        { label: 'Send Bulk Message', value: 'http://localhost:3000/api/messages/send-bulk', defaultBody: JSON.stringify({
+  "recipientIds": ["contact456", "contact789"],
+  "messageBody": "Hello everyone!"
+}, null, 2) },
+        { label: 'Send Private Message', value: 'http://localhost:3000/api/messages/send-private', defaultBody: JSON.stringify({
+  "recipientId": "contact456",
+  "messageBody": "Hello!"
+}, null, 2) },
     ];
+
     // Update request body when endpoint changes
     useEffect(() => {
         const selectedApi = apiOptions.find(option => option.value === endpoint);
@@ -44,9 +43,11 @@ export default function ApiPlayground() {
             setRequestBody(selectedApi.defaultBody);
         }
     }, [endpoint]);
+
   const handleSendRequest = async () => {
     setLoading(true);
     setResponse(''); // Clear previous response
+
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -56,11 +57,15 @@ export default function ApiPlayground() {
         },
         body: requestBody,
       });
+
       const text = await res.text(); // Get the response body as text
+
       if (!res.ok) {
         throw new Error(`HTTP error! Status: ${res.status}, Response: ${text}`);
       }
+
       setResponse(text);
+
     } catch (error: any) {
       console.error('Error sending request:', error);
       setResponse(`Error: ${error.message}`);
@@ -73,6 +78,7 @@ export default function ApiPlayground() {
       setLoading(false);
     };
   };
+
   return (
     <div className="flex-1 space-y-4 p-8 pt-6">
       <h2 className="text-3xl font-bold tracking-tight">API Playground</h2>
